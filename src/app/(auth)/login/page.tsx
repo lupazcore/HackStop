@@ -1,0 +1,2 @@
+import { AuthForm } from "@/components/forms/AuthForm";
+export default async function Login({ searchParams }: { searchParams: Promise<{ next?: string }> }) { return <div className="mx-auto max-w-md space-y-6"><div><p className="mb-2 text-sm text-ink-secondary">YOUR WORKSPACE</p><h1>Welcome back</h1><p className="mt-3 text-ink-secondary">Sign in to manage your event or submission.</p></div><AuthForm next={(await searchParams).next} /></div>; }

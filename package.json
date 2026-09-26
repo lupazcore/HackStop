@@ -1,0 +1,39 @@
+{
+  "name": "hackstop",
+  "version": "0.1.0",
+  "private": true,
+  "overrides": { "deepmerge-ts": "8.0.0" },
+  "scripts": {
+    "dev": "node --env-file=.env --import tsx scripts/serve.ts dev",
+    "build": "prisma generate && next build",
+    "start": "node --env-file=.env --import tsx scripts/serve.ts start",
+    "lint": "eslint . && tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "seed": "node --env-file=.env --import tsx prisma/seed.ts",
+    "setup": "tsx scripts/setup.ts",
+    "dogfood:config": "tsx scripts/dogfood-config.ts"
+  },
+  "dependencies": {
+    "@fontsource/inter": "5.3.0",
+    "@prisma/client": "6.19.3",
+    "bcryptjs": "3.0.3",
+    "lucide-react": "1.48.0",
+    "next": "16.3.6",
+    "prisma": "6.19.3",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "tsx": "4.23.15"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.3",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "autoprefixer": "10.6.1",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.3.6",
+    "jiti": "2.7.0",
+    "postcss": "8.5.28",
+    "tailwindcss": "3.4.19",
+    "typescript": "6.0.3"
+  }
+}

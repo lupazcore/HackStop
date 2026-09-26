@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:16
+    pull_policy: missing
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Run npm run setup}
+      POSTGRES_USER: ${POSTGRES_USER:?Run npm run setup}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run npm run setup}
+      PGPORT: ${DB_PORT:?Run npm run setup}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -p "$$PGPORT"']
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    networks: [portal]
+  app:
+    image: hackstop:local
+    pull_policy: never
+    build: .
+    ports:
+      - '${APP_PORT:?Run npm run setup}:${APP_PORT:?Run npm run setup}'
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:${DB_PORT}/${POSTGRES_DB}
+      PORT: ${APP_PORT}
+      HOSTNAME: 0.0.0.0
+      APP_URL: ${APP_URL:?Run npm run setup}
+      SEED_PASSWORD: ${SEED_PASSWORD:?Run npm run setup}
+      SEED_SESSION_SECRET: ${SEED_SESSION_SECRET:?Run npm run setup}
+      SEED_ORGANIZER_EMAIL: ${SEED_ORGANIZER_EMAIL}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL}
+      FIXTURES_PATH: ${FIXTURES_PATH}
+      NEXT_TELEMETRY_DISABLED: '1'
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [portal]
+    healthcheck:
+      test: [CMD, node, -e, 'fetch("http://" + process.env.HOSTNAME + ":" + process.env.PORT + "/api/health").then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+volumes:
+  postgres-data:
+networks:
+  portal:
+    driver: bridge

@@ -1,0 +1,224 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  participant
+  judge
+  organizer
+  admin
+}
+
+enum MemberRole {
+  leader
+  member
+}
+
+enum ProjectStatus {
+  draft
+  submitted
+}
+
+enum AssignmentStatus {
+  pending
+  in_progress
+  completed
+}
+
+model User {
+  id                String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  external_id       String?                @unique @db.VarChar(50)
+  email             String                 @unique @db.VarChar(255)
+  password_hash     String                 @db.VarChar(255)
+  name              String                 @db.VarChar(255)
+  role              Role
+  created_at        DateTime               @default(now()) @db.Timestamptz(6)
+  sessions          Session[]
+  memberships       TeamMember[]
+  events            Event[]
+  track_assignments JudgeTrackAssignment[]
+  assignments       JudgeAssignment[]
+  scores            Score[]
+}
+
+model Session {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  token      String   @unique @db.VarChar(255)
+  user_id    String   @db.Uuid
+  expires_at DateTime @db.Timestamptz(6)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+}
+
+model Event {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  external_id       String?   @unique @db.VarChar(50)
+  organizer_id      String    @db.Uuid
+  name              String    @db.VarChar(255)
+  submissions_open  DateTime? @db.Timestamptz(6)
+  submissions_close DateTime  @db.Timestamptz(6)
+  judging_open      DateTime? @db.Timestamptz(6)
+  judging_close     DateTime? @db.Timestamptz(6)
+  prizes            Json      @default("[]") @db.JsonB
+  custom_questions  Json      @default("[]") @db.JsonB
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  organizer         User      @relation(fields: [organizer_id], references: [id], onDelete: Restrict)
+  tracks            Track[]
+  teams             Team[]
+  rubric            Rubric?
+
+  @@index([organizer_id])
+}
+
+model Track {
+  id                String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  external_id       String?                @unique @db.VarChar(50)
+  event_id          String                 @db.Uuid
+  name              String                 @db.VarChar(255)
+  event             Event                  @relation(fields: [event_id], references: [id], onDelete: Cascade)
+  projects          Project[]
+  judge_assignments JudgeTrackAssignment[]
+
+  @@index([event_id])
+}
+
+model Team {
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  external_id String?      @unique @db.VarChar(50)
+  event_id    String       @db.Uuid
+  name        String       @db.VarChar(255)
+  invite_code String       @unique @db.VarChar(50)
+  created_at  DateTime     @default(now()) @db.Timestamptz(6)
+  event       Event        @relation(fields: [event_id], references: [id], onDelete: Cascade)
+  members     TeamMember[]
+  projects    Project[]
+
+  @@index([event_id])
+}
+
+model TeamMember {
+  id      String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  team_id String     @db.Uuid
+  user_id String     @db.Uuid
+  role    MemberRole @default(member)
+  team    Team       @relation(fields: [team_id], references: [id], onDelete: Cascade)
+  user    User       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([team_id, user_id])
+  @@index([user_id])
+}
+
+model Project {
+  id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  external_id       String?           @unique @db.VarChar(50)
+  team_id           String            @db.Uuid
+  track_id          String            @db.Uuid
+  title             String            @db.VarChar(255)
+  tagline           String?           @db.VarChar(500)
+  summary           String?           @db.Text
+  thumbnail_url     String?           @db.VarChar(2048)
+  image_urls        Json?             @db.JsonB
+  demo_video_url    String?           @db.VarChar(2048)
+  repo_url          String?           @db.VarChar(2048)
+  live_url          String?           @db.VarChar(2048)
+  tech_tags         Json?             @db.JsonB
+  custom_answers    Json?             @db.JsonB
+  status            ProjectStatus     @default(draft)
+  is_duplicate      Boolean           @default(false)
+  submitted_at      DateTime?         @db.Timestamptz(6)
+  created_at        DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime          @updatedAt @db.Timestamptz(6)
+  team              Team              @relation(fields: [team_id], references: [id], onDelete: Cascade)
+  track             Track             @relation(fields: [track_id], references: [id], onDelete: Restrict)
+  assignments       JudgeAssignment[]
+  scores            Score[]
+  normalized_result NormalizedResult?
+
+  @@index([track_id])
+  @@index([team_id])
+  @@index([status])
+}
+
+model Rubric {
+  id       String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  event_id String            @unique @db.Uuid
+  name     String            @db.VarChar(255)
+  event    Event             @relation(fields: [event_id], references: [id], onDelete: Cascade)
+  criteria RubricCriterion[]
+}
+
+model RubricCriterion {
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rubric_id  String  @db.Uuid
+  name       String  @db.VarChar(255)
+  weight     Decimal @db.Decimal(5, 2)
+  max_score  Int     @default(5)
+  sort_order Int
+  rubric     Rubric  @relation(fields: [rubric_id], references: [id], onDelete: Cascade)
+  scores     Score[]
+
+  @@unique([rubric_id, name])
+}
+
+model JudgeTrackAssignment {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  judge_id String @db.Uuid
+  track_id String @db.Uuid
+  judge    User   @relation(fields: [judge_id], references: [id], onDelete: Cascade)
+  track    Track  @relation(fields: [track_id], references: [id], onDelete: Cascade)
+
+  @@unique([judge_id, track_id])
+  @@index([track_id])
+}
+
+model JudgeAssignment {
+  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  judge_id    String           @db.Uuid
+  project_id  String           @db.Uuid
+  status      AssignmentStatus @default(pending)
+  assigned_at DateTime         @default(now()) @db.Timestamptz(6)
+  judge       User             @relation(fields: [judge_id], references: [id], onDelete: Restrict)
+  project     Project          @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  scores      Score[]
+
+  @@unique([judge_id, project_id])
+  @@index([project_id])
+}
+
+model Score {
+  id           String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  judge_id     String          @db.Uuid
+  project_id   String          @db.Uuid
+  criterion_id String          @db.Uuid
+  value        Int
+  comment      String?         @db.Text
+  created_at   DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime        @updatedAt @db.Timestamptz(6)
+  judge        User            @relation(fields: [judge_id], references: [id], onDelete: Restrict)
+  project      Project         @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  criterion    RubricCriterion @relation(fields: [criterion_id], references: [id], onDelete: Cascade)
+  assignment   JudgeAssignment @relation(fields: [judge_id, project_id], references: [judge_id, project_id], onDelete: Cascade)
+
+  @@unique([judge_id, project_id, criterion_id])
+  @@index([project_id])
+  @@index([criterion_id])
+}
+
+model NormalizedResult {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  project_id       String   @unique @db.Uuid
+  criterion_scores Json     @db.JsonB
+  weighted_total   Decimal  @db.Decimal(10, 6)
+  rank             Int?
+  review_count     Int
+  raw_avg          Json?    @db.JsonB
+  computed_at      DateTime @default(now()) @db.Timestamptz(6)
+  project          Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+}
