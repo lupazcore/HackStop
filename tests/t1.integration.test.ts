@@ -6,7 +6,7 @@ import { PrismaClient } from "@prisma/client";
 import { requiredEnv } from "../src/lib/env";
 import { seedTokens } from "../src/lib/seed-config";
 
-loadEnvFile();
+if (!process.env.DATABASE_URL) loadEnvFile();
 const db = new PrismaClient();
 const base = requiredEnv("APP_URL");
 const tokens = seedTokens();
