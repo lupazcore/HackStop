@@ -1,12 +1,14 @@
 # ARCHITECTURE
 
-## Current delivery: T1–T3
+## Current delivery: T1–T4
 
-Authentication, events, teams, submissions, the public gallery, and T2 judging are implemented. All judging tables are in the first migration. Fixture assignments and scores are imported on boot; organizers calculate results on demand or by exporting CSV.
+Authentication, events, teams, submissions, the public gallery, T2 judging, and T3 community features are implemented. T4 establishes a stable, formalized, and versioned public REST API under `/api/v1/` paired with an OpenAPI 3.1.0 specification at `/api/v1/openapi.json` and `docs/openapi.json`.
 
-Authorization is resolved directly in protected route handlers with `getSession()` and `requireRole()`. No client-supplied identity headers or Edge middleware are trusted. Ownership helpers filter organizer reads by `organizer_id` and participant queries by authenticated team membership. `requireSelf()` provides the identity comparison for T2 to extend. Admin has organizer event API access but no dedicated UI. Serializable transactions protect team capacity, one-team-per-event membership, and duplicate project creation.
+Authorization is resolved directly in protected route handlers with `getSession()` and `requireRole()`. No client-supplied identity headers or Edge middleware are trusted. Session authentication supports standard `Authorization: Bearer <session_token>` headers as well as cookies, enabling external API clients and scripts to authenticate cleanly. Ownership helpers filter organizer reads by `organizer_id` and participant queries by authenticated team membership. `requireSelf()` provides the identity comparison for judging score isolation. Admin has organizer event API access. Serializable transactions protect team capacity, one-team-per-event membership, and duplicate project creation.
 
-T3 adds event voting windows, per-user votes, comments, and an organizer/admin audit log in a second migration. Vote and comment writes lock the authenticated account row while checking the database's rolling hourly count, then insert the action and audit record in one transaction. The vote table has a unique user-project pair. Ballot order is derived from the active session ID, so it survives refreshes without a cache or stored shuffle. Result reads preserve T2 ownership and return an unavailable response to nonorganizers during voting.
+T3 adds event voting windows, per-user votes, comments, and an organizer/admin audit log. Vote and comment writes lock the authenticated account row while checking the database's rolling hourly count, then insert the action and audit record in one transaction. The vote table has a unique user-project pair. Ballot order is derived from the active session ID, so it survives refreshes without a cache or stored shuffle. Result reads preserve T2 ownership and return an unavailable response to nonorganizers during voting.
+
+T4 routes reuse existing domain operations without duplicating business logic, ensuring all role requirements, ownership filters, rate limits, and deadline gates remain uniformly enforced across both internal web routes and public API consumers.
 
 Compose supplies local demo defaults for every startup value, so a fresh clone needs no `.env` or setup command. The app binds to loopback under those public defaults. An optional `.env` overrides them for a deployment or custom local instance. Once base images and build dependencies are available locally, Compose builds and starts the two services offline, deploys migrations, idempotently seeds fixtures, and prints all four acceptance session headers on each startup. See README.md for actual commands, dependency versions, and approved schema clarifications.
 

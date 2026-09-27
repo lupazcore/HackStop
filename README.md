@@ -74,6 +74,15 @@ The seed imports one event, 8 tracks, 30 judges, 40 teams, 41 projects, 126 hist
 - Vote and comment writes use a per-account database counter over the preceding hour, serialized by locking the account row. Defaults are 20 votes and 10 comments per hour, configured by `VOTE_RATE_LIMIT_PER_HOUR` and `COMMENT_RATE_LIMIT_PER_HOUR`.
 - During an active voting window, nonorganizers receive HTTP 423 with a clear unavailable message from the rankings endpoint; event organizers and admins retain live access. After voting closes, the T2 access policy remains: only organizers and admins can read rankings. CSV export retains its organizer/admin restriction.
 
+## T4 REST API and OpenAPI
+
+The platform formalizes all platform functionality into a stable, versioned public REST API under `/api/v1/`.
+
+- Role and ownership isolation: public API access does not mean unauthenticated access. Every endpoint enforces the existing T1/T2/T3 role permissions (visitor, participant, judge, organizer, admin).
+- Bearer token authentication: all protected endpoints accept standard `Authorization: Bearer <session_token>` headers in addition to session cookies. The current user profile can be retrieved at `GET /api/v1/auth/me`.
+- Formal OpenAPI 3.1.0 specification: the complete API schema is published at `GET /api/v1/openapi.json` and saved in the repository at [docs/openapi.json](docs/openapi.json). It details request payloads, responses, parameters, security schemes, and error models.
+- Discovery endpoint: `GET /api/v1` provides a root resource index and pointer to the OpenAPI document.
+
 ## Development and verification
 
 To access the database from local tooling, use the development override:

@@ -150,7 +150,7 @@ Every "denied" is enforced at the API level, not by hiding UI elements. The acce
 ### Functional
 
 - `docker compose up` produces a working, seeded portal.
-- Fixture data (fixtures.json) is loaded automatically on first boot.
+- Fixture data (fixtures.json) is loaded automati cally on first boot.
 - Four deterministic session tokens are printed at startup for the acceptance suite.
 - All 7 acceptance suite checks pass (3 for T1, 4 for T2).
 - Submissions are refused after the deadline (fixture close date is 2026-03-01T18:00:00Z, in the past).
