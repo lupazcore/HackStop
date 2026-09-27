@@ -371,7 +371,7 @@ Error:    { "error": "<message>" }
 List:     { "data": [<items>], "total": <count> }
 ```
 
-We will not build a formal REST API with OpenAPI documentation (that is a T4 deliverable). The API routes serve the frontend and the acceptance suite.
+In T4, a formal versioned REST API is established under `/api/v1/` with a complete OpenAPI 3.1.0 specification published at `/api/v1/openapi.json` and saved in `docs/openapi.json`. It formalizes every resource, security scheme, parameter, and response shape across all platform entities while preserving backward compatibility for internal routes and the acceptance suite.
 
 ---
 

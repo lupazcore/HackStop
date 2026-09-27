@@ -6,10 +6,10 @@ claimed = ["T1", "T2"]
 pitch = "Self-hosted submissions, judge assignments, weighted scoring, normalized rankings and CSV export."
 
 [auth]
-organizer = "Cookie: session=org_ee6e941340d54b845fe91edd0b9075972af2cd5901769062a45f4927f72f987f"
-judge_a = "Cookie: session=jdg_a_8e8460ad74646957a373edebcfc25cd8f11d423d48e393ff95a56a33c34ecdb8"
-judge_b = "Cookie: session=jdg_b_0e0c4f53bb79b363931aaf9b5854441530f543be8d3e638fcbf739d556c822ff"
-participant = "Cookie: session=prt_53e3c2b61635dd88126e7985e6ef9f3de547c6d7520edd6872136a4faa1e77e3"
+organizer = "Cookie: session=org_498e5563c9797b38126e0cce13148c7c5b6989d2d765f158e049254ef4ddc357"
+judge_a = "Cookie: session=jdg_a_7527fe0e9812fbb4fbfd51c7645948ca6decee5a3974a59cac6638884d6cf66e"
+judge_b = "Cookie: session=jdg_b_0f7a53126c6e49f87cf0dfb530c275e8a5f389e60c1764b6a12357d4bc414b9a"
+participant = "Cookie: session=prt_950c3865f233131f66b5a947ff4ca6ccbe7bf6db12d9d307c3debe107770b0ba"
 
 [routes]
 gallery = "/projects"
