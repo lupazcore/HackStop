@@ -3,10 +3,10 @@ services:
     image: postgres:16
     pull_policy: missing
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:?Run npm run setup}
-      POSTGRES_USER: ${POSTGRES_USER:?Run npm run setup}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run npm run setup}
-      PGPORT: ${DB_PORT:?Run npm run setup}
+      POSTGRES_DB: ${POSTGRES_DB:-hackstop}
+      POSTGRES_USER: ${POSTGRES_USER:-hackstop}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hackstop-local-db-password}
+      PGPORT: ${DB_PORT:-5432}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -17,22 +17,22 @@ services:
     networks: [portal]
   app:
     image: hackstop:local
-    pull_policy: never
+    pull_policy: build
     build: .
     ports:
-      - '${APP_PORT:?Run npm run setup}:${APP_PORT:?Run npm run setup}'
+      - '127.0.0.1:${APP_PORT:-8080}:${APP_PORT:-8080}'
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:${DB_PORT}/${POSTGRES_DB}
-      PORT: ${APP_PORT}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-hackstop}:${POSTGRES_PASSWORD:-hackstop-local-db-password}@db:${DB_PORT:-5432}/${POSTGRES_DB:-hackstop}
+      PORT: ${APP_PORT:-8080}
       HOSTNAME: 0.0.0.0
-      APP_URL: ${APP_URL:?Run npm run setup}
-      SEED_PASSWORD: ${SEED_PASSWORD:?Run npm run setup}
-      SEED_SESSION_SECRET: ${SEED_SESSION_SECRET:?Run npm run setup}
-      SEED_ORGANIZER_EMAIL: ${SEED_ORGANIZER_EMAIL}
-      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL}
-      FIXTURES_PATH: ${FIXTURES_PATH}
-      VOTE_RATE_LIMIT_PER_HOUR: ${VOTE_RATE_LIMIT_PER_HOUR:?Run npm run setup}
-      COMMENT_RATE_LIMIT_PER_HOUR: ${COMMENT_RATE_LIMIT_PER_HOUR:?Run npm run setup}
+      APP_URL: ${APP_URL:-http://localhost:8080}
+      SEED_PASSWORD: ${SEED_PASSWORD:-hackstop-local-seed-password}
+      SEED_SESSION_SECRET: ${SEED_SESSION_SECRET:-hackstop-local-session-seed-not-secret-2026}
+      SEED_ORGANIZER_EMAIL: ${SEED_ORGANIZER_EMAIL:-organizer@example.org}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@example.org}
+      FIXTURES_PATH: ${FIXTURES_PATH:-docs/fixtures.json}
+      VOTE_RATE_LIMIT_PER_HOUR: ${VOTE_RATE_LIMIT_PER_HOUR:-20}
+      COMMENT_RATE_LIMIT_PER_HOUR: ${COMMENT_RATE_LIMIT_PER_HOUR:-10}
       NEXT_TELEMETRY_DISABLED: '1'
     depends_on:
       db:

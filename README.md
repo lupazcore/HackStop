@@ -6,30 +6,27 @@ The [24-second demo video](demo-video/HackStop-demo.mp4) shows the running publi
 
 ## Run
 
-Node.js 24 and Docker Compose are required for initial preparation. Copy `.env.example` to `.env` and fill the three secret values, or generate them:
+From a fresh clone, run one command with Docker Compose. No `.env`, host Node.js install, or setup script is required:
 
 ```sh
-npm ci
-npm run setup
-docker compose up --build
+docker compose up
 ```
 
-The configuration uses the application address in `APP_URL` and port in `APP_PORT`. The example opens the portal at `http://localhost:8080/projects`. Both containers start from Compose; the app applies migrations, seeds fixtures transactionally, prints four session headers, and starts the production server as a non-root user. PostgreSQL has a persistent named volume and is not published to the host in the default Compose configuration.
+The baseline opens the portal at `http://localhost:8080/projects`. Compose builds the app, starts PostgreSQL, applies migrations, seeds fixtures transactionally, prints four session headers, and starts the production server as a non-root user. The demo credentials and session seed in `docker-compose.yml` are public local defaults; the application port binds to loopback and PostgreSQL has no host port. For a deployment, override the defaults with private values. `npm ci && npm run setup` remains an optional way to create a custom `.env`; set `APP_URL` alongside `APP_PORT` when changing the port.
 
-After building the app image and pulling PostgreSQL once, `docker compose up` uses the local images without installing dependencies or fetching assets. Internet access is needed for that initial preparation, not for runtime. Fonts are bundled locally. Fixture media are empty; optional media URLs supplied by participants depend on their hosts being reachable from the browser. The app server does not fetch those URLs or embed remote video players.
+After the base images and npm build dependencies have been fetched once, Compose reuses cached layers for later offline builds and starts. Internet access may be needed for that first image build on an uncached Docker host, not for portal runtime. Fonts are bundled locally. Fixture media are empty; optional media URLs supplied by participants depend on their hosts being reachable from the browser. The app server does not fetch those URLs or embed remote video players.
 
-Generate the local acceptance configuration and run the unmodified official checker:
+The tracked `.dogfood.toml` matches the zero-setup defaults. Run the unmodified official checker directly:
 
 ```sh
-npm run dogfood:config
 python docs/run.py .dogfood.toml > acceptance-report.txt
 ```
 
-`.dogfood.toml` claims T1 and T2. All seven official acceptance checks pass in `acceptance-report.txt`.
+For custom `.env` values, run `npm run dogfood:config` after installing the local development dependencies; it reads the effective Compose configuration and regenerates the test tokens. `.dogfood.toml` claims T1 and T2. All seven official acceptance checks pass in `acceptance-report.txt`.
 
 ## Accounts and sessions
 
-`SEED_PASSWORD` in your gitignored `.env` is the password for the fixture accounts. The four fixed acceptance identities are:
+`SEED_PASSWORD` from Compose, or an optional gitignored `.env`, is the password for the fixture accounts. The four fixed acceptance identities are:
 
 | Account | Email |
 |---|---|
@@ -40,7 +37,7 @@ python docs/run.py .dogfood.toml > acceptance-report.txt
 
 The seed also preserves every fixture judge and team member and creates the configured admin. Visitor means no authenticated user. Public registration can only create participants, regardless of a submitted role field. Judges use `/judge/assignments` and `/judge/scoring/[projectId]`. Admin remains API-only and can manage events across owners.
 
-Passwords use bcrypt with cost 12. Normal sessions are random 32-byte hex tokens, expire after seven days, and are revoked on logout. Cookies are HttpOnly, SameSite=Lax, and Secure when `APP_URL` uses HTTPS. Mutating endpoints reject foreign Origin headers and require JSON. Seed tokens are HMAC-derived from `SEED_SESSION_SECRET`, have the documented prefixes, and stay deterministic for that configuration. Restarting renews their expiry and prints them in the exact `spec.md` format. Keep `.env`, `.dogfood.toml`, and boot logs private; these tokens grant the listed test access.
+Passwords use bcrypt with cost 12. Normal sessions are random 32-byte hex tokens, expire after seven days, and are revoked on logout. Cookies are HttpOnly, SameSite=Lax, and Secure when `APP_URL` uses HTTPS. Mutating endpoints reject foreign Origin headers and require JSON. Seed tokens are HMAC-derived from `SEED_SESSION_SECRET`, have the documented prefixes, and stay deterministic for that configuration. Restarting renews their expiry and prints them in the exact `spec.md` format. The checked-in test tokens are public and grant access to the local demo; keep custom `.env` files, regenerated tokens, and deployment boot logs private.
 
 ## T1 behavior
 

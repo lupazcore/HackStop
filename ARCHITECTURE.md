@@ -8,7 +8,7 @@ Authorization is resolved directly in protected route handlers with `getSession(
 
 T3 adds event voting windows, per-user votes, comments, and an organizer/admin audit log in a second migration. Vote and comment writes lock the authenticated account row while checking the database's rolling hourly count, then insert the action and audit record in one transaction. The vote table has a unique user-project pair. Ballot order is derived from the active session ID, so it survives refreshes without a cache or stored shuffle. Result reads preserve T2 ownership and return an unavailable response to nonorganizers during voting.
 
-Environment setup generates credentials and all ports/URLs come from `.env`. Once images are prepared, Compose starts the two services offline, deploys migrations, idempotently seeds fixtures, and prints all four acceptance session headers on each startup. See README.md for actual commands, dependency versions, and approved schema clarifications.
+Compose supplies local demo defaults for every startup value, so a fresh clone needs no `.env` or setup command. The app binds to loopback under those public defaults. An optional `.env` overrides them for a deployment or custom local instance. Once base images and build dependencies are available locally, Compose builds and starts the two services offline, deploys migrations, idempotently seeds fixtures, and prints all four acceptance session headers on each startup. See README.md for actual commands, dependency versions, and approved schema clarifications.
 
 HackStop is a self-hostable hackathon submission and judging platform. One command starts it. One command seeds it. It runs on a laptop with the network off.
 
