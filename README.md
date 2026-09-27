@@ -1,6 +1,8 @@
 # HackStop
 
-A self-hosted hackathon portal built with Next.js, TypeScript, Prisma, PostgreSQL 16, and Tailwind CSS. This delivery implements **T1 and T2**: submissions, judge assignment and scoring, weighted rubrics, progress, normalized rankings, and CSV export.
+A self-hosted hackathon portal built with Next.js, TypeScript, Prisma, PostgreSQL 16, and Tailwind CSS. This delivery implements **T1, T2, and T3**: submissions, judging, normalized rankings, CSV export, authenticated community voting, comments, and an organizer audit log.
+
+The [24-second demo video](demo-video/HackStop-demo.mp4) shows the running public gallery, organizer judging dashboard, and judge review screen.
 
 ## Run
 
@@ -12,7 +14,7 @@ npm run setup
 docker compose up --build
 ```
 
-The configuration uses the application address in `APP_URL` and port in `APP_PORT`. The example opens the portal at `http://localhost:8080/projects`. Both containers start from Compose; the app applies the single migration, seeds fixtures transactionally, prints four session headers, and starts the production server as a non-root user. PostgreSQL has a persistent named volume and is not published to the host in the default Compose configuration.
+The configuration uses the application address in `APP_URL` and port in `APP_PORT`. The example opens the portal at `http://localhost:8080/projects`. Both containers start from Compose; the app applies migrations, seeds fixtures transactionally, prints four session headers, and starts the production server as a non-root user. PostgreSQL has a persistent named volume and is not published to the host in the default Compose configuration.
 
 After building the app image and pulling PostgreSQL once, `docker compose up` uses the local images without installing dependencies or fetching assets. Internet access is needed for that initial preparation, not for runtime. Fonts are bundled locally. Fixture media are empty; optional media URLs supplied by participants depend on their hosts being reachable from the browser. The app server does not fetch those URLs or embed remote video players.
 
@@ -52,7 +54,7 @@ Passwords use bcrypt with cost 12. Normal sessions are random 32-byte hex tokens
 
 ## Schema decisions
 
-The first and only migration contains all 13 documented tables, PostgreSQL-generated UUID keys, UTC TIMESTAMPTZ fields, external fixture IDs, relations, constraints, and query indexes. It also contains the approved `Event.organizer_id`, JSONB `prizes`, and JSONB `custom_questions` additions. The normalized table retains the documented name `NormalizedResult`.
+The initial migration contains all 13 T1/T2 tables, PostgreSQL-generated UUID keys, UTC TIMESTAMPTZ fields, external fixture IDs, relations, constraints, and query indexes. It also contains the approved `Event.organizer_id`, JSONB `prizes`, and JSONB `custom_questions` additions. The normalized table retains the documented name `NormalizedResult`. A second migration adds the T3 voting window, votes, comments, and audit records; no T1/T2 table is rebuilt.
 
 Custom questions are `{ id, label, required }` objects and answers are strings keyed by question ID. The event form creates required text questions; the API also accepts optional questions. Prizes are a list of display strings. Custom answers are public with the project; the form makes this explicit.
 
@@ -64,8 +66,16 @@ The seed imports one event, 8 tracks, 30 judges, 40 teams, 41 projects, 126 hist
 
 - Organizers invite judges by email and track, then share a generated password. They can assign selected submissions manually or balance a track automatically to a target review count. The dashboard shows assignments, completed reviews, and percentage complete for each judge.
 - Judges see only their own assigned projects in qualified tracks. They can save partial criterion scores, add an optional comment, and update a review until `judging_close`. If `judging_open` is unset, scoring starts at `submissions_close`; if `judging_close` is unset, there is no scheduled judging cutoff.
-- Organizers configure criteria, relative weights, and scoring scales. Once scoring starts, the criterion set and scales are fixed to preserve existing scores; names and weights remain editable. Normalization uses sample standard deviation per judge and criterion. At zero variance it retains the raw score, following the explicit T2 clarification. This mixes raw and z-score units; [JUDGING.md](JUDGING.md) documents its ranking impact.
-- Rankings use only criteria actually scored, without imputing unfinished reviews. Projects missing any criterion retain an unranked result row until scoring is complete. `prj_41` and its scores remain queryable, but the duplicate has no rank and is excluded from CSV. CSV rows come from `NormalizedResult` joined with project and team records. Participant result publication is outside this T2 scope.
+- Organizers configure criteria, relative weights, and scoring scales. Once scoring starts, the criterion set and scales are fixed to preserve existing scores; names and weights remain editable. Normalization uses sample standard deviation per judge and criterion. Constant and single-score distributions contribute z=0, so raw 1–5 values never enter normalized averages. [JUDGING.md](JUDGING.md) documents the calculation and fixture impact.
+- Rankings use only criteria actually scored, without imputing unfinished reviews. Projects missing any criterion retain an unranked result row until scoring is complete. `prj_41` and its scores remain queryable, but the duplicate has no rank and is excluded from CSV and the organizer ranking table. CSV rows come from `NormalizedResult` joined with project and team records. Judge assignment responses omit team invite codes at the database query. Score saves, rubric changes, normalization, and CSV reads use an event-row lock inside their transactions so a concurrent change cannot leave stale exported results. Participant result publication is outside this T2 scope.
+
+## T3 community
+
+- Events may set `voting_opens` and `voting_closes`. The seeded fixture receives an active window on its first T3 boot so voting can be exercised without changing the historical submission deadline. Voting opens inclusively and closes exclusively.
+- Authenticated people can rate a submitted, nonduplicate project from 1 to 5 once per project. The database enforces `(user_id, project_id)` uniqueness. An event organizer and judges assigned to that event cannot vote on it. The ballot at `/vote` uses the session ID to derive a stable shuffled order; signing in with another account produces another order.
+- Authenticated people can comment on submitted project pages. Comments are publicly readable on those gallery pages, but anonymous posting is rejected. Vote and comment writes each create an audit record in the same transaction. Only an organizer of the event or an admin can read `/api/organizer/community-audit` or the event's Community activity page.
+- Vote and comment writes use a per-account database counter over the preceding hour, serialized by locking the account row. Defaults are 20 votes and 10 comments per hour, configured by `VOTE_RATE_LIMIT_PER_HOUR` and `COMMENT_RATE_LIMIT_PER_HOUR`.
+- During an active voting window, nonorganizers receive HTTP 423 with a clear unavailable message from the rankings endpoint; event organizers and admins retain live access. After voting closes, the T2 access policy remains: only organizers and admins can read rankings. CSV export retains its organizer/admin restriction.
 
 ## Development and verification
 
@@ -77,7 +87,7 @@ npm run lint
 npm test
 ```
 
-The override exposes the database on loopback only, using `DB_HOST_PORT`. Integration tests use `.env` and the running portal. They create uniquely named test users/events and clean up only those test records. T1 tests cover fixture counts, auth-first status codes, registration role injection, session expiry/revocation, event ownership, admin API access, draft privacy, cross-team isolation, complete submissions, required custom answers, URL validation, concurrent invite capacity, deadlines, and CSRF origin rejection. T2 tests cover peer-score isolation, invitation, manual and automatic assignment, partial and completed reviews, progress, zero-variance normalization, duplicate exclusion, CSV export, and judging-close enforcement. Unit tests exercise exact deadline boundaries and the shared ownership guard.
+The override exposes the database on loopback only, using `DB_HOST_PORT`. Integration tests use `.env` and the running portal. They create uniquely named test users/events and clean up only those test records. T1 tests cover fixture counts, auth-first status codes, registration role injection, session expiry/revocation, event ownership, admin API access, draft privacy, cross-team isolation, complete submissions, required custom answers, URL validation, concurrent invite capacity, deadlines, and CSRF origin rejection. T2 tests cover peer-score isolation, invitation, manual and automatic assignment, partial and completed reviews, progress, zero-variance normalization, duplicate exclusion, CSV export, and judging-close enforcement. Unit tests exercise exact deadline boundaries and the shared ownership guard. T3 was verified against the running portal with distinct authenticated accounts, duplicate and rate-limit attempts, ballot refreshes, result access checks, and audit-log reads; the seven official T1/T2 checks still pass.
 
 For local Next.js development, stop the Compose app, keep the database running with the override, and run `npm run dev`. `DATABASE_URL` in `.env` targets that loopback database, and the server uses `APP_PORT`. `npm run build && npm start` runs the local standalone production build.
 

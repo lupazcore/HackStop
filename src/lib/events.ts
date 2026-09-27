@@ -21,14 +21,18 @@ export function eventInput(input: Record<string, unknown>) {
   const submissionsOpen = date(input.submissions_open, "Submissions open");
   const judgingOpen = date(input.judging_open, "Judging open");
   const judgingClose = date(input.judging_close, "Judging close");
+  const votingOpens = date(input.voting_opens, "Voting opens");
+  const votingCloses = date(input.voting_closes, "Voting closes");
   if (submissionsOpen && submissionsOpen >= submissionsClose) throw new HttpError(400, "Submissions must open before they close.");
   if (judgingOpen && judgingOpen < submissionsClose) throw new HttpError(400, "Judging cannot open before submissions close.");
   if (judgingClose && judgingClose <= (judgingOpen ?? submissionsClose)) throw new HttpError(400, "Judging must close after it opens and after submissions close.");
+  if (Boolean(votingOpens) !== Boolean(votingCloses)) throw new HttpError(400, "Set both voting dates or leave both empty.");
+  if (votingOpens && votingCloses && votingOpens >= votingCloses) throw new HttpError(400, "Voting must close after it opens.");
   const tracks = strings(input.tracks, "Tracks", 30);
   if (!tracks.length) throw new HttpError(400, "Add at least one track.");
   return {
     name: text(input.name, "Event name"), submissions_open: submissionsOpen, submissions_close: submissionsClose,
-    judging_open: judgingOpen, judging_close: judgingClose, prizes: strings(input.prizes, "Prizes", 30, 500),
+    judging_open: judgingOpen, judging_close: judgingClose, voting_opens: votingOpens, voting_closes: votingCloses, prizes: strings(input.prizes, "Prizes", 30, 500),
     custom_questions: questions(input.custom_questions), tracks: { create: tracks.map(name => ({ name })) },
   };
 }

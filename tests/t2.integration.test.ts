@@ -30,8 +30,22 @@ test("T2 ownership, partial scoring, normalization and export", async () => {
     assert.equal((await request("/api/judge/scores?judge=judge_a", "GET", tokens.judge_b)).status, 403);
     assert.equal((await request("/api/judge/scores", "GET", tokens.participant)).status, 403);
     assert.equal((await request("/api/judge/scores")).status, 401);
+    const assignments = await request("/api/judge/assignments", "GET", tokens.judge_a);
+    assert.equal(assignments.status, 200);
+    assert.doesNotMatch(assignments.text, /invite_code/);
+    const own = assignments.data as { project_id: string; project: { team: { name: string } } }[];
+    assert.ok(own.length);
+    assert.ok(own[0].project.team.name);
+    const detail = await request(`/api/judge/assignments/${own[0].project_id}`, "GET", tokens.judge_a);
+    assert.equal(detail.status, 200);
+    assert.doesNotMatch(detail.text, /invite_code/);
+    assert.match(detail.text, /functionality/);
     assert.match((await request("/judge/assignments", "GET", tokens.judge_a)).text, /My reviews/);
-    assert.match((await request(`/organizer/events/${fixture.id}/judging`, "GET", tokens.organizer)).text, /Judge progress/);
+    const workspace = await request(`/organizer/events/${fixture.id}/judging`, "GET", tokens.organizer);
+    assert.equal(workspace.status, 200);
+    assert.match(workspace.text, /Judge progress/);
+    assert.doesNotMatch(workspace.text, /<td[^>]*>Excluded<\/td>/);
+    assert.doesNotMatch(workspace.text, /<span[^>]*>Duplicate<\/span>/);
     assert.equal((await request("/api/organizer/judges", "POST", tokens.participant, {})).status, 403);
     assert.equal((await request("/api/organizer/judges", "POST", undefined, {})).status, 401);
     const csv = await request("/api/export.csv", "GET", tokens.organizer);
@@ -43,8 +57,8 @@ test("T2 ownership, partial scoring, normalization and export", async () => {
     assert.equal(new Set(duplicate.scores.map(score => score.judge_id)).size, 4);
     assert.equal(await db.normalizedResult.count({ where: { project: { team: { event_id: fixture.id } }, rank: { not: null } } }), 40);
     const dryHarbour = await db.project.findUniqueOrThrow({ where: { external_id: "prj_07" }, include: { normalized_result: true } });
-    assert.equal(dryHarbour.normalized_result?.rank, 4);
-    assert.ok(Math.abs(dryHarbour.normalized_result!.weighted_total.toNumber() - 1.061092) < 0.000001);
+    assert.equal(dryHarbour.normalized_result?.rank, 11);
+    assert.ok(Math.abs(dryHarbour.normalized_result!.weighted_total.toNumber() - 0.127759) < 0.000001);
 
     const event = await request("/api/events", "POST", tokens.organizer, { name: marker, submissions_open: new Date(Date.now() - 60000).toISOString(), submissions_close: new Date(Date.now() + 3600000).toISOString(), tracks: ["Review track"] }) ;
     assert.equal(event.status, 201, event.text);
@@ -88,7 +102,7 @@ test("T2 ownership, partial scoring, normalization and export", async () => {
     assert.equal((await request(`/api/organizer/results?event_id=${eventId}`, "POST", tokens.organizer)).status, 200);
     const unfinished = await db.normalizedResult.findUniqueOrThrow({ where: { project_id: projectId } });
     assert.equal(unfinished.rank, null);
-    assert.equal(unfinished.weighted_total.toNumber(), 4);
+    assert.equal(unfinished.weighted_total.toNumber(), 0);
     const complete = await request(`/api/judge/assignments/${projectId}`, "PUT", judgeToken, { scores: [{ criterion_id: criteria[1].id, value: 5 }], comment: "Complete" });
     assert.equal(complete.status, 200, complete.text);
     assert.equal((complete.data as { status: string }).status, "completed");
@@ -102,7 +116,7 @@ test("T2 ownership, partial scoring, normalization and export", async () => {
     assert.equal(calculated.status, 200, calculated.text);
     const result = await db.normalizedResult.findUniqueOrThrow({ where: { project_id: projectId } });
     assert.equal(result.review_count, 1);
-    assert.ok(Math.abs(result.weighted_total.toNumber() - 13 / 3) < 0.000001);
+    assert.equal(result.weighted_total.toNumber(), 0);
     const exported = await request(`/api/export.csv?event_id=${eventId}`, "GET", tokens.organizer);
     assert.equal(exported.status, 200);
     assert.match(exported.text, new RegExp(marker));
@@ -111,7 +125,7 @@ test("T2 ownership, partial scoring, normalization and export", async () => {
     assert.equal(revised.status, 200, revised.text);
     assert.equal(await db.normalizedResult.count({ where: { project_id: projectId } }), 0);
     assert.equal((await request(`/api/organizer/results?event_id=${eventId}`, "POST", tokens.organizer)).status, 200);
-    assert.equal((await db.normalizedResult.findUniqueOrThrow({ where: { project_id: projectId } })).weighted_total.toNumber(), 4.5);
+    assert.equal((await db.normalizedResult.findUniqueOrThrow({ where: { project_id: projectId } })).weighted_total.toNumber(), 0);
     assert.equal((await request("/api/organizer/rubric", "PUT", tokens.organizer, { event_id: eventId, name: "Invalid", criteria: [{ id: criteria[0].id, name: "Build quality", weight: 1, max_score: 5 }] })).status, 409);
     await db.event.update({ where: { id: eventId }, data: { judging_close: new Date(Date.now() - 1000) } });
     assert.equal((await request(`/api/judge/assignments/${projectId}`, "PUT", judgeToken, { scores: [{ criterion_id: criteria[0].id, value: 3 }] })).status, 409);

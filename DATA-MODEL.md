@@ -8,6 +8,8 @@ The normalized table is named `NormalizedResult`, as approved. Rubric weights re
 
 All tables and fixture records were created in T1. T2 uses those tables for judging routes, calculations, and interfaces without a second migration.
 
+T3 adds a separate migration for `Event.voting_opens`, `Event.voting_closes`, `CommunityVote`, `CommunityComment`, and `CommunityAudit`. It leaves the T1/T2 schema and `NormalizedResult` intact.
+
 This document describes every table in the database, how they relate to each other, and how data moves in and out of the platform.
 
 The schema is defined in `prisma/schema.prisma`. Prisma generates the migration files and the TypeScript client from that single source of truth.
@@ -28,6 +30,9 @@ JudgeAssignment 1---* Score
 Score *---1 RubricCriterion
 Project 1---* Score
 Project 1---0..1 NormalizedResult
+User 1---* CommunityVote *---1 Project
+User 1---* CommunityComment *---1 Project
+User 1---* CommunityAudit *---1 Project
 ```
 
 ---
@@ -80,6 +85,8 @@ The top-level entity. Everything else hangs off an event.
 | submissions_close | TIMESTAMPTZ  | NOT NULL              | After this time, all submission endpoints return 403. |
 | judging_open      | TIMESTAMPTZ  |                       |                                         |
 | judging_close     | TIMESTAMPTZ  |                       |                                         |
+| voting_opens      | TIMESTAMPTZ  |                       | Optional start of authenticated voting |
+| voting_closes     | TIMESTAMPTZ  |                       | Optional end of authenticated voting   |
 | created_at        | TIMESTAMPTZ  | NOT NULL, default now |                                         |
 
 The `submissions_close` field drives deadline enforcement. The fixture sets this to `2026-03-01T18:00:00Z`, which is in the past, so the acceptance suite's late-submission check passes without any clock manipulation.
@@ -190,11 +197,11 @@ Individual scoring criteria within a rubric. Each criterion has a name, a weight
 | id        | UUID          | PK, generated                    |                             |
 | rubric_id | UUID          | FK -> Rubric.id, NOT NULL        |                             |
 | name      | VARCHAR(255)  | NOT NULL                         | e.g. "functionality"        |
-| weight    | DECIMAL(5,2)  | NOT NULL                         | e.g. 0.33 for equal weight  |
+| weight    | DECIMAL(5,2)  | NOT NULL                         | Relative; 1, 1, 1 gives equal thirds  |
 | max_score | INTEGER       | NOT NULL, default 5              |                             |
 | sort_order| INTEGER       | NOT NULL                         | Display ordering            |
 
-The fixture data uses three criteria: `functionality`, `quality`, `innovation`. We seed them with equal weights (1/3 each). The organizer can change the weights and add or remove criteria through the rubric configuration interface.
+The fixture data uses three criteria: `functionality`, `quality`, `innovation`. We seed relative weights of 1, 1, 1 and divide each by the sum in calculations. Organizers can change weights. Once scores exist, criteria and scales remain fixed to preserve those scores.
 
 Composite unique constraint on `(rubric_id, name)`.
 
@@ -297,7 +304,7 @@ The fixture file (`fixtures.json`) contains a single JSON object with six top-le
 
 **Duplicate submission.** Team `tm_07` has two project entries: `prj_07` and `prj_41`. Both are titled "Dry Harbour", both are in track Accessibility, and they share the same repo URL. `prj_41` was submitted later (17:57 UTC vs 04:29 UTC on March 1). We flag `prj_41` as a duplicate during seeding. Both projects have scores (`prj_07` has 5 reviews, `prj_41` has 4 reviews), so we preserve the score data but exclude the duplicate from rankings.
 
-**Constant-score judges.** `jdg_01` scored one project and gave 2 on every criterion. `jdg_07` scored three projects and gave 4 on every criterion. Sample standard deviation is undefined or zero for these judges. Per the explicit T2 clarification, their raw scores are retained as the finite fallback. This choice and its effect on ranking are documented in JUDGING.md.
+**Constant-score judges.** `jdg_01` scored one project and gave 2 on every criterion. `jdg_07` scored three projects and gave 4 on every criterion. Sample standard deviation is undefined or zero for these judges. Their normalized contribution is z=0; raw scores remain unchanged in Score. This rule and its effect on ranking are documented in JUDGING.md.
 
 **Uneven review counts.** Projects have between 2 and 5 reviews. Judges submitted between 1 and 11 score entries. There is no project with zero scores, but there is significant variance in coverage. We display the review count alongside each project's score so the organizer can identify thin evidence.
 
@@ -404,7 +411,7 @@ We will use `ON DELETE CASCADE` on foreign keys where the child record has no me
 - Deleting a Team cascades to TeamMember and Project
 - Deleting an Event cascades to Track, Team, Rubric
 - Deleting a Rubric cascades to RubricCriterion
-- Deleting a Project cascades to Score, JudgeAssignment, NormalizedResult
+- Deleting a Project cascades to Score, JudgeAssignment, NormalizedResult, CommunityVote, CommunityComment, CommunityAudit
 
 We will use `ON DELETE RESTRICT` where deletion should be blocked:
 
@@ -421,6 +428,16 @@ The application server does not assume a local timezone. All deadline comparison
 
 ---
 
+## T3 community tables
+
+`CommunityVote` stores `id`, `user_id`, `project_id`, a 1–5 integer `value`, and `created_at`. A unique constraint on `(user_id, project_id)` makes a second vote impossible even when requests race. An index on `(user_id, created_at)` supports the hourly rate counter.
+
+`CommunityComment` stores `id`, `user_id`, `project_id`, text `body`, and `created_at`. Its `(user_id, created_at)` index supports the separate hourly comment counter; `(project_id, created_at)` supports each gallery thread.
+
+`CommunityAudit` stores `id`, `actor_id`, `project_id`, `action` (`vote` or `comment`), the created vote/comment `target_id`, and `created_at`. It is written in the same transaction as the action and filtered through the event's project ownership when organizers or admins read it.
+
+---
+
 ## Constraints Summary
 
 | Constraint                                       | Enforcement level |
@@ -434,5 +451,8 @@ The application server does not assume a local timezone. All deadline comparison
 | Submission deadline                              | Application layer (timestamp comparison) |
 | Judge can only see own scores                    | Application layer (query filter + permission check) |
 | Judge can only see assigned tracks               | Application layer (join through JudgeTrackAssignment) |
+| One vote per user per submission                 | Database (unique composite constraint) |
+| Vote rating from 1 to 5                          | Database check and application validation |
+| Hourly vote and comment caps                     | Application transaction with account-row lock and database count |
 
 We are pushing constraints into the database wherever possible. The application layer handles constraints that depend on business logic or cross-table conditions that PostgreSQL check constraints cannot express cleanly.

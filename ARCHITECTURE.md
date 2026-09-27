@@ -1,12 +1,14 @@
 # ARCHITECTURE
 
-## Current delivery: T1
+## Current delivery: T1–T3
 
 Authentication, events, teams, submissions, the public gallery, and T2 judging are implemented. All judging tables are in the first migration. Fixture assignments and scores are imported on boot; organizers calculate results on demand or by exporting CSV.
 
 Authorization is resolved directly in protected route handlers with `getSession()` and `requireRole()`. No client-supplied identity headers or Edge middleware are trusted. Ownership helpers filter organizer reads by `organizer_id` and participant queries by authenticated team membership. `requireSelf()` provides the identity comparison for T2 to extend. Admin has organizer event API access but no dedicated UI. Serializable transactions protect team capacity, one-team-per-event membership, and duplicate project creation.
 
-Environment setup generates credentials and all ports/URLs come from `.env`. Once images are prepared, Compose starts the two services offline, deploys the single migration, idempotently seeds fixtures, and prints all four acceptance session headers on each startup. See README.md for actual commands, dependency versions, and approved schema clarifications.
+T3 adds event voting windows, per-user votes, comments, and an organizer/admin audit log in a second migration. Vote and comment writes lock the authenticated account row while checking the database's rolling hourly count, then insert the action and audit record in one transaction. The vote table has a unique user-project pair. Ballot order is derived from the active session ID, so it survives refreshes without a cache or stored shuffle. Result reads preserve T2 ownership and return an unavailable response to nonorganizers during voting.
+
+Environment setup generates credentials and all ports/URLs come from `.env`. Once images are prepared, Compose starts the two services offline, deploys migrations, idempotently seeds fixtures, and prints all four acceptance session headers on each startup. See README.md for actual commands, dependency versions, and approved schema clarifications.
 
 HackStop is a self-hostable hackathon submission and judging platform. One command starts it. One command seeds it. It runs on a laptop with the network off.
 
@@ -369,7 +371,7 @@ The final project score is the weighted sum of the normalized per-criterion scor
 
 **Edge cases in the fixture data that we handle:**
 
-1. **Constant judge (zero variance)**: `jdg_01` gave 2 on every criterion in one review. `jdg_07` gave 4 on every criterion in three reviews. Sample standard deviation is undefined or zero, so the explicit T2 clarification retains these raw scores. The raw fallback affects ranking because it shares an average with z-scores; JUDGING.md reports the fixture impact.
+1. **Constant judge (zero variance)**: `jdg_01` gave 2 on every criterion in one review. `jdg_07` gave 4 on every criterion in three reviews. Sample standard deviation is undefined or zero, so these distributions contribute z=0. Raw scores remain unchanged in storage; JUDGING.md reports the fixture impact.
 
 2. **Incomplete batches**: Not every judge finished scoring all assigned projects. The fixture data shows judges with as few as 1 score entry and as many as 11. We compute statistics only over the scores a judge actually submitted. Missing scores are not imputed.
 
@@ -521,7 +523,7 @@ Every time the AI produced a module, we asked it to explain the design in plain 
 
 ## What We Will Not Build
 
-We are targeting T1 and T2. We will not attempt T3 (community voting, comments) or T4 (REST API, webhooks, certificates) unless we had confirmed time after T1 and T2 were fully passing the acceptance suite.
+T1 and T2 passed the seven acceptance checks before T3 began. T3 community voting, comments, and audit logging are implemented. T4 (public API, webhooks, certificates, and embeddable widget) remains outside this delivery.
 
 The spec is explicit that a clean T2 beats a broken T4. We are taking that at face value.
 

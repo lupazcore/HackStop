@@ -6,3 +6,4 @@ node_modules
 .dogfood.toml
 test-results
 *.tsbuildinfo
+demo-video

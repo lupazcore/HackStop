@@ -1,3 +1,4 @@
+import { lockJudgingEvent } from "@/lib/judging";
 import { db } from "@/lib/db";
 import { api, HttpError } from "@/lib/http";
 import { recomputeResults } from "@/lib/normalization";
@@ -19,14 +20,20 @@ export async function GET(request: Request) {
   return api(async () => {
     const actor = requireRole(await getSession(), "organizer", "admin");
     const selected = new URL(request.url).searchParams.get("event_id");
-    const event = await db.event.findFirst({ where: { ...(selected ? { id: uuid(selected, "Event ID") } : {}), ...ownedEvents(actor) }, select: { id: true, external_id: true, rubric: { include: { criteria: { orderBy: { sort_order: "asc" } } } } }, orderBy: { created_at: "desc" } });
-    if (!event) throw new HttpError(404, "Event not found in your account.");
-    let results = await db.normalizedResult.findMany({ where: { project: { team: { event_id: event.id } } }, include: { project: { select: { external_id: true, title: true, is_duplicate: true, team: { select: { name: true } }, track: { select: { name: true } } } } }, orderBy: { rank: "asc" } });
-    const submittedCount = await db.project.count({ where: { team: { event_id: event.id }, status: "submitted" } });
-    if (results.length !== submittedCount) {
-      await recomputeResults(event.id);
-      results = await db.normalizedResult.findMany({ where: { project: { team: { event_id: event.id } } }, include: { project: { select: { external_id: true, title: true, is_duplicate: true, team: { select: { name: true } }, track: { select: { name: true } } } } }, orderBy: { rank: "asc" } });
-    }
+    const owned = await db.event.findFirst({ where: { ...(selected ? { id: uuid(selected, "Event ID") } : {}), ...ownedEvents(actor) }, select: { id: true }, orderBy: { created_at: "desc" } });
+    if (!owned) throw new HttpError(404, "Event not found in your account.");
+    const { event, results } = await db.$transaction(async tx => {
+      await lockJudgingEvent(tx, owned.id);
+      const event = await tx.event.findFirst({ where: { id: owned.id, ...ownedEvents(actor) }, select: { id: true, external_id: true, rubric: { include: { criteria: { orderBy: { sort_order: "asc" } } } } } });
+      if (!event) throw new HttpError(404, "Event not found in your account.");
+      let results = await tx.normalizedResult.findMany({ where: { project: { team: { event_id: event.id } } }, include: { project: { select: { external_id: true, title: true, is_duplicate: true, team: { select: { name: true } }, track: { select: { name: true } } } } }, orderBy: { rank: "asc" } });
+      const submittedCount = await tx.project.count({ where: { team: { event_id: event.id }, status: "submitted" } });
+      if (results.length !== submittedCount) {
+        await recomputeResults(event.id, tx);
+        results = await tx.normalizedResult.findMany({ where: { project: { team: { event_id: event.id } } }, include: { project: { select: { external_id: true, title: true, is_duplicate: true, team: { select: { name: true } }, track: { select: { name: true } } } } }, orderBy: { rank: "asc" } });
+      }
+      return { event, results };
+    }, { maxWait: 10000, timeout: 10000 });
     const criteria = event.rubric?.criteria.map(criterion => criterion.name) ?? [];
     const header = ["project_id", "title", "team_name", "track", "review_count", ...criteria.flatMap(name => [`${name}_raw_avg`, `${name}_normalized`]), "weighted_total", "rank"];
     const rows = results.filter(result => result.rank !== null && !result.project.is_duplicate).map(result => {

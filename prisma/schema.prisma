@@ -30,6 +30,11 @@ enum AssignmentStatus {
   completed
 }
 
+enum CommunityAction {
+  vote
+  comment
+}
+
 model User {
   id                String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   external_id       String?                @unique @db.VarChar(50)
@@ -44,6 +49,9 @@ model User {
   track_assignments JudgeTrackAssignment[]
   assignments       JudgeAssignment[]
   scores            Score[]
+  votes             CommunityVote[]
+  comments          CommunityComment[]
+  community_actions CommunityAudit[]
 }
 
 model Session {
@@ -66,6 +74,8 @@ model Event {
   submissions_close DateTime  @db.Timestamptz(6)
   judging_open      DateTime? @db.Timestamptz(6)
   judging_close     DateTime? @db.Timestamptz(6)
+  voting_opens      DateTime? @db.Timestamptz(6)
+  voting_closes     DateTime? @db.Timestamptz(6)
   prizes            Json      @default("[]") @db.JsonB
   custom_questions  Json      @default("[]") @db.JsonB
   created_at        DateTime  @default(now()) @db.Timestamptz(6)
@@ -140,6 +150,9 @@ model Project {
   assignments       JudgeAssignment[]
   scores            Score[]
   normalized_result NormalizedResult?
+  votes             CommunityVote[]
+  comments          CommunityComment[]
+  community_actions CommunityAudit[]
 
   @@index([track_id])
   @@index([team_id])
@@ -221,4 +234,44 @@ model NormalizedResult {
   raw_avg          Json?    @db.JsonB
   computed_at      DateTime @default(now()) @db.Timestamptz(6)
   project          Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+}
+
+model CommunityVote {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String   @db.Uuid
+  project_id String   @db.Uuid
+  value      Int
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Restrict)
+  project    Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, project_id])
+  @@index([user_id, created_at])
+  @@index([project_id])
+}
+
+model CommunityComment {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id    String   @db.Uuid
+  project_id String   @db.Uuid
+  body       String   @db.Text
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Restrict)
+  project    Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, created_at])
+  @@index([project_id, created_at])
+}
+
+model CommunityAudit {
+  id         String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actor_id   String          @db.Uuid
+  project_id String          @db.Uuid
+  action     CommunityAction
+  target_id  String          @db.Uuid
+  created_at DateTime        @default(now()) @db.Timestamptz(6)
+  actor      User            @relation(fields: [actor_id], references: [id], onDelete: Restrict)
+  project    Project         @relation(fields: [project_id], references: [id], onDelete: Cascade)
+
+  @@index([project_id, created_at])
 }

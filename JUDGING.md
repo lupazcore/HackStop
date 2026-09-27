@@ -2,7 +2,7 @@
 
 ## Implemented T2 behavior
 
-T1 supplied the schema and fixture data. T2 adds assignment, scoring, rubric editing, organizer progress, normalized results, and CSV export without a schema migration. The zero-variance rule below follows the explicit T2 clarification: retain the raw score when sample standard deviation is zero.
+T1 supplied the schema and fixture data. T2 adds assignment, scoring, rubric editing, organizer progress, normalized results, and CSV export without a schema migration. The zero-variance rule is z=0: constant and single-score distributions contribute no relative signal, keeping every contribution on the z-score scale.
 
 Approved storage clarification: the DECIMAL(5,2) `weight` column holds relative weights (the fixture uses 1, 1, 1). In every formula below, `weight(c)` means `stored_weight(c) / sum(stored_weights)`. T2 must require a positive total and positive stored weights. This gives equal thirds and replaces the earlier requirement that the stored values themselves sum to 1.0.
 
@@ -161,14 +161,14 @@ For each individual score, compute how many standard deviations it falls from th
 z(j, p, c) = (raw_score - mean(j,c)) / std(j,c)
 ```
 
-If `std(j,c) = 0` or the judge has only one score for this criterion, use that raw score unadjusted. The organizer explicitly chose this fallback for T2. It preserves finite values but mixes raw and z-score units, so the impact is visible in the worked example below.
+If `std(j,c) = 0` or the judge has only one score for this criterion, set `z(j,p,c) = 0`. This prevents division by zero without mixing raw values into averages of z-scores. The original raw score remains stored unchanged.
 
 ### Step 3: Per-project, per-criterion normalized score
 
-For each project p and criterion c, average the transformed values from all judges who scored that project on that criterion. A transformed value is a z-score when variance exists and the raw score under the chosen zero-variance fallback:
+For each project p and criterion c, average the z-scores from all judges who scored that project on that criterion, including zero contributions from constant or single-score distributions:
 
 ```
-norm(p, c) = (1/k) * sum of transformed(j, p, c) for all judges j who scored project p
+norm(p, c) = (1/k) * sum of z(j, p, c) for all judges j who scored project p
 ```
 
 where k is the number of judges who scored project p on criterion c.
@@ -199,7 +199,7 @@ Sort all non-duplicate projects by `final(p)` in descending order. The project w
 
 `jdg_07` scored 3 projects and gave 4 on every criterion across all three. Standard deviation is 0.0.
 
-**Our solution.** Use the raw score unadjusted when the sample standard deviation is zero. This avoids division by zero and retains the judge's recorded review. The fallback is an explicit product choice, even though a constant score offers no relative ranking signal and can lift a project more than a finite z-score.
+**Our solution.** Set z=0 when the sample standard deviation is zero. A constant distribution provides no relative ranking signal. Keep its raw scores and review count, but contribute zero to the normalized average.
 
 ### 6b. Single-project judge
 
@@ -207,7 +207,7 @@ Sort all non-duplicate projects by `final(p)` in descending order. The project w
 
 **Who it affects.** `jdg_01` (1 project) and `jdg_23` (1 project).
 
-**Our solution.** Use the raw score unadjusted, as with every zero-variance distribution. A single value cannot establish a sample standard deviation.
+**Our solution.** Set z=0. A single value cannot establish a sample standard deviation or a relative ranking signal.
 
 ### 6c. Incomplete batches
 
@@ -233,25 +233,25 @@ A partially scored project retains a result row and averages only criteria with 
 
 ## 7. Worked Example from Fixture Data
 
-`prj_07` ("Dry Harbour") has five reviews. Statistics use each judge's scored non-duplicate projects only; the later duplicate `prj_41` has scores but is excluded from baselines and rankings. The numbers below are from the seeded fixture and the implemented T2 calculation.
+`prj_07` ("Dry Harbour") has five reviews. Statistics use each judge's scored non-duplicate projects only; `prj_41` is excluded from baselines and rankings but retains its stored scores.
 
 | Criterion | Judge contributions after transformation | Project average |
 |---|---|---:|
-| functionality | jdg_19 -1.155, jdg_21 4.000, jdg_26 0.185, jdg_01 2.000, jdg_12 4.000 | 1.806 |
-| quality | jdg_19 -1.000, jdg_21 -0.218, jdg_26 1.258, jdg_01 2.000, jdg_12 0.707 | 0.549 |
-| innovation | jdg_19 -1.000, jdg_21 1.155, jdg_26 1.278, jdg_01 2.000, jdg_12 0.707 | 0.828 |
+| functionality | jdg_19 -1.155, jdg_21 0.000, jdg_26 0.185, jdg_01 0.000, jdg_12 0.000 | -0.194 |
+| quality | jdg_19 -1.000, jdg_21 -0.218, jdg_26 1.258, jdg_01 0.000, jdg_12 0.707 | 0.149 |
+| innovation | jdg_19 -1.000, jdg_21 1.155, jdg_26 1.278, jdg_01 0.000, jdg_12 0.707 | 0.428 |
 
-`jdg_01` has one review, so its three contributions are its raw 2s. `jdg_21` and `jdg_12` have zero functionality variance over their non-duplicate scored projects, so their functionality contributions remain raw 4s. All other contributions above use `(raw - judge mean) / sample standard deviation` for that criterion.
+`jdg_01` has one review, so all three contributions are zero. `jdg_21` and `jdg_12` have zero functionality variance over their scored non-duplicate projects, so their functionality contributions are also zero. Other contributions use `(raw - judge mean) / sample standard deviation`.
 
-With equal relative weights of `1, 1, 1`, the effective weights are thirds. The weighted result for `prj_07` is `(1.806 + 0.549 + 0.828) / 3 = 1.061`. Its raw weighted average is 3.333. With ties broken by fixture project ID for comparison, it moves from raw rank 30 to normalized rank 4. The large movement is partly driven by the requested raw-score fallback.
+With equal relative weights of `1, 1, 1`, the weighted result is `0.127759`, placing `prj_07` at normalized rank 11. Its raw weighted average is 3.333 (raw rank 30 when fixture IDs break raw-score ties).
 
 ## 8. Rank Movement Analysis
 
-Across the 40 non-duplicate fixture projects, 28 move by at least three positions compared with ranking by raw criterion averages. The five largest climbs are `prj_07` (30 to 4), `prj_22` (37 to 16), `prj_03` (29 to 10), `prj_17` (18 to 3), and `prj_09` (17 to 2). The largest drops include `prj_15` (12 to 31), `prj_28` (25 to 38), and `prj_38` (10 to 23). These ranks describe the chosen raw-score fallback, not a pure z-score ranking.
+Across the 40 non-duplicate fixture projects, 21 move by at least three positions compared with raw criterion averages. The largest climbs include `prj_07`, `prj_12`, `prj_03`, `prj_24`, and `prj_22`. Comparisons use fixture project IDs to break raw-score ties; stored normalized ties use project UUIDs.
 
 ## 9. Distribution of Final Scores
 
-In this fixture, the mean raw weighted average is 3.549 with sample standard deviation 0.365. The mean final score is 0.211 with sample standard deviation 0.551. The final mean need not be zero and its spread need not shrink because zero-variance judges contribute raw scores on the 1-5 scale. Review counts remain visible beside results so organizers can inspect thin coverage.
+The fixture mean raw weighted average is 3.549 with sample standard deviation 0.365. With z=0 for zero-variance distributions, the mean normalized project score is -0.013421 with sample standard deviation 0.299954. The project-level mean need not be exactly zero because projects have different review counts. Review counts remain visible beside results.
 
 ---
 
@@ -259,7 +259,7 @@ In this fixture, the mean raw weighted average is 3.549 with sample standard dev
 
 ### Simple averaging (rejected)
 
-Average raw scores across all judges who reviewed a project. This is what most platforms do. This is rejected because it produces unfair rankings when judges have different baselines, which they always do. Section 3 shows this with a concrete example. The fixture data shows substantial rank movement under the chosen normalization and fallback policy.
+Average raw scores across all judges who reviewed a project. This is what most platforms do. This is rejected because it produces unfair rankings when judges have different baselines, which they always do. Section 3 shows this with a concrete example. The fixture data shows substantial rank movement after per-judge normalization.
 
 ### Min-max normalization (rejected)
 
@@ -400,6 +400,8 @@ Score updates overwrite the value but preserve the timestamp trail. If a judge c
 
 The normalized results table stores a `computed_at` timestamp so the organizer can see when normalization was last run.
 
+Score saves, rubric changes, normalization, and CSV reads acquire the same PostgreSQL event-row lock inside their transactions. Normalization reads its rubric and scores after acquiring the lock and holds it through replacement of NormalizedResult. A save arriving during normalization waits, then commits its update and invalidates the earlier results. The next export recalculates from the updated scores. CSV reads its rubric and results under the same lock, so its columns and values describe one consistent snapshot.
+
 The organizer can cross-reference any final ranking against the raw data. Every number in the CSV export can be traced back to individual judge scores in the database. There is no black box.
 
 ---
@@ -408,11 +410,11 @@ The organizer can cross-reference any final ranking against the raw data. Every 
 
 | Decision                                | Reasoning                                    |
 |-----------------------------------------|----------------------------------------------|
-| Z-score over raw averaging              | Raw averages are unfair when judges have different baselines. The fixture data shows substantial rank movement under the chosen normalization and fallback policy. |
+| Z-score over raw averaging              | Raw averages are unfair when judges have different baselines. The fixture data shows substantial rank movement after per-judge normalization. |
 | Per-criterion normalization             | Judges have criterion-specific biases. A judge harsh on quality but generous on innovation is not uncommon. |
 | Sample standard deviation (n-1)         | Judge scores are a sample from their internal scale, not a census. |
-| Raw fallback for constant judges        | Avoids division by zero and preserves the review as explicitly chosen for T2. |
-| Raw fallback for single-project judges  | One data point cannot establish a sample standard deviation. |
+| z=0 for constant judges                 | Avoids division by zero without introducing a different score scale. |
+| z=0 for single-project judges           | One data point cannot establish a sample standard deviation. |
 | No imputation for missing scores        | Guessing missing scores introduces bias. Absent data should stay absent. |
 | Duplicate detection by team + title     | Catches the fixture data edge case (`prj_07`/`prj_41`). Earlier submission kept, later flagged. |
 | Three-layer access control              | Role gate + ownership filter + explicit peer check. Defense in depth for the most critical security property. |

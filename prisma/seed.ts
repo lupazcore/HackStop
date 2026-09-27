@@ -22,10 +22,14 @@ async function main() {
   const passwordHash = await hash(password(requiredEnv("SEED_PASSWORD")), 12);
   await db.$transaction(async tx => {
     const seeded = await tx.event.findUnique({ where: { external_id: fixture.event.id } });
+    // The historical fixture stays closed for submissions but needs a live T3 ballot.
+    const votingOpens = new Date(Date.now() - 60 * 60 * 1000);
+    const votingCloses = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    if (seeded && !seeded.voting_opens && !seeded.voting_closes) await tx.event.update({ where: { id: seeded.id }, data: { voting_opens: votingOpens, voting_closes: votingCloses } });
     if (!seeded) {
       const organizer = await tx.user.create({ data: { external_id: "organizer", email: requiredEnv("SEED_ORGANIZER_EMAIL"), name: "Organizer", role: "organizer", password_hash: passwordHash } });
       await tx.user.create({ data: { external_id: "admin", email: requiredEnv("SEED_ADMIN_EMAIL"), name: "Admin", role: "admin", password_hash: passwordHash } });
-      const event = await tx.event.create({ data: { external_id: fixture.event.id, organizer_id: organizer.id, name: fixture.event.name, submissions_close: new Date(fixture.event.submissions_close) } });
+      const event = await tx.event.create({ data: { external_id: fixture.event.id, organizer_id: organizer.id, name: fixture.event.name, submissions_close: new Date(fixture.event.submissions_close), voting_opens: votingOpens, voting_closes: votingCloses } });
       await tx.track.createMany({ data: fixture.tracks.map(track => ({ external_id: track.id, name: track.name, event_id: event.id })) });
       const tracks = new Map((await tx.track.findMany({ where: { event_id: event.id } })).map(track => [track.external_id!, track.id]));
       await tx.user.createMany({ data: fixture.judges.map(judge => ({ external_id: judge.id, email: judge.email, name: judge.name, role: "judge", password_hash: passwordHash })) });

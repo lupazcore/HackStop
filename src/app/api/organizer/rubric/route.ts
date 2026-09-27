@@ -1,3 +1,4 @@
+import { lockJudgingEvent } from "@/lib/judging";
 import { db } from "@/lib/db";
 import { api, body, HttpError, success } from "@/lib/http";
 import { ownedEvents, requireRole } from "@/lib/permissions";
@@ -32,15 +33,18 @@ export async function PUT(request: Request) {
       return { name: criterionName, weight, max_score: maxScore, sort_order: index, id: raw.id ? uuid(raw.id, "Criterion ID") : null };
     });
     if (new Set(criteria.map(criterion => criterion.name.toLowerCase())).size !== criteria.length) throw new HttpError(400, "Criterion names must be unique.");
-    const event = await db.event.findFirst({ where: { id: eventId, ...ownedEvents(actor) }, include: { rubric: { include: { criteria: true } } } });
-    if (!event) throw new HttpError(404, "Event not found in your account.");
-    const scoreCount = await db.score.count({ where: { project: { team: { event_id: eventId } } } });
-    if (scoreCount) {
-      const original = event.rubric?.criteria ?? [];
-      const ids = new Set(original.map(criterion => criterion.id));
-      if (criteria.length !== original.length || criteria.some(criterion => !criterion.id || !ids.has(criterion.id) || original.find(old => old.id === criterion.id)?.max_score !== criterion.max_score)) throw new HttpError(409, "Once scoring starts, keep the same criteria and scales. Their names and weights can still change.");
-    }
+    const owned = await db.event.findFirst({ where: { id: eventId, ...ownedEvents(actor) }, select: { id: true } });
+    if (!owned) throw new HttpError(404, "Event not found in your account.");
     const result = await db.$transaction(async tx => {
+      await lockJudgingEvent(tx, eventId);
+      const event = await tx.event.findFirst({ where: { id: eventId, ...ownedEvents(actor) }, include: { rubric: { include: { criteria: true } } } });
+      if (!event) throw new HttpError(404, "Event not found in your account.");
+      const scoreCount = await tx.score.count({ where: { project: { team: { event_id: eventId } } } });
+      if (scoreCount) {
+        const original = event.rubric?.criteria ?? [];
+        const ids = new Set(original.map(criterion => criterion.id));
+        if (criteria.length !== original.length || criteria.some(criterion => !criterion.id || !ids.has(criterion.id) || original.find(old => old.id === criterion.id)?.max_score !== criterion.max_score)) throw new HttpError(409, "Once scoring starts, keep the same criteria and scales. Their names and weights can still change.");
+      }
       if (event.rubric) {
         await tx.rubric.update({ where: { id: event.rubric.id }, data: { name } });
         if (!scoreCount) {
@@ -55,7 +59,7 @@ export async function PUT(request: Request) {
       }
       await tx.normalizedResult.deleteMany({ where: { project: { team: { event_id: eventId } } } });
       return tx.rubric.findUniqueOrThrow({ where: { event_id: eventId }, include: { criteria: { orderBy: { sort_order: "asc" } } } });
-    });
+    }, { maxWait: 10000, timeout: 10000 });
     return success(result);
   });
 }

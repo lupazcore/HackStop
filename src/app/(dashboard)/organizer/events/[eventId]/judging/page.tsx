@@ -24,7 +24,7 @@ export default async function JudgingWorkspace({ params }: { params: Promise<{ e
     db.user.findMany({ where: { role: "judge", track_assignments: { some: { track: { event_id: eventId } } } }, select: { id: true, name: true, email: true, track_assignments: { where: { track: { event_id: eventId } }, select: { track: { select: { name: true } } } } }, orderBy: { name: "asc" } }),
     db.project.findMany({ where: { team: { event_id: eventId }, status: "submitted" }, select: { id: true, title: true, track_id: true }, orderBy: { title: "asc" } }),
     db.judgeAssignment.findMany({ where: { project: { team: { event_id: eventId } } }, select: { id: true, judge_id: true, status: true, judge: { select: { name: true } }, project: { select: { title: true, track: { select: { name: true } } } } } }),
-    db.normalizedResult.findMany({ where: { project: { team: { event_id: eventId } } }, include: { project: { select: { title: true, is_duplicate: true, team: { select: { name: true } }, track: { select: { name: true } } } } }, orderBy: { rank: "asc" } }),
+    db.normalizedResult.findMany({ where: { rank: { not: null }, project: { team: { event_id: eventId }, is_duplicate: false } }, include: { project: { select: { title: true, is_duplicate: true, team: { select: { name: true } }, track: { select: { name: true } } } } }, orderBy: { rank: "asc" } }),
     db.score.count({ where: { project: { team: { event_id: eventId } } } })
   ]);
   const judges = judgeRows.map(judge => ({ id: judge.id, name: judge.name, email: judge.email, tracks: judge.track_assignments.map(item => item.track.name) }));
