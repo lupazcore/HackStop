@@ -2,8 +2,8 @@
 base_url = "http://localhost:8080"
 
 [tiers]
-claimed = ["T1"]
-pitch = "Self-hosted events, teams, deadline-enforced submissions and public gallery."
+claimed = ["T1", "T2"]
+pitch = "Self-hosted submissions, judge assignments, weighted scoring, normalized rankings and CSV export."
 
 [auth]
 organizer = "Cookie: session=org_ee6e941340d54b845fe91edd0b9075972af2cd5901769062a45f4927f72f987f"

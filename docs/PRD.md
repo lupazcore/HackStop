@@ -37,7 +37,7 @@ Our target: a clean, correct, fully documented T1 + T2. The spec says "a clean T
 
 Three personas use the platform:
 
-**Organizer.** Creates events, configures tracks and prizes, sets up the judging rubric, invites and assigns judges, monitors judging progress, runs normalization, publishes results, exports CSV. Has full visibility into all data.
+**Organizer.** Creates events, configures tracks and prizes, sets up the judging rubric, invites and assigns judges, monitors judging progress, runs normalization, and exports CSV. Has full visibility into judging data. Participant result publication is deferred beyond the listed T2 scope.
 
 **Judge.** Receives project assignments within their designated tracks. Scores each project against the rubric criteria. Can see only their own scores. Cannot see other judges' scores, other tracks, aggregates, or audit logs. This isolation is enforced at the API level.
 
@@ -136,13 +136,12 @@ Every "denied" is enforced at the API level, not by hiding UI elements. The acce
 6. Saves. Can return and update scores until judging closes.
 7. Cannot see any other judge's scores at any point.
 
-### Flow 4: Organizer publishes results
+### Flow 4: Organizer reviews results
 
 1. Organizer opens the progress dashboard. Sees which judges have completed scoring.
 2. Triggers normalization. Sees raw vs. normalized rankings side by side.
 3. Reviews results.
-4. Publishes results (makes them visible to participants).
-5. Exports CSV at any point.
+4. Exports CSV at any point. Participant result publication is outside the listed T2 scope.
 
 ---
 

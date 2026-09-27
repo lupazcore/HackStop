@@ -2,7 +2,7 @@
 
 ## Current delivery: T1
 
-Only authentication, event creation, teams/invites, submissions, and the public gallery are implemented. T2 sections below are design plans. All tables exist in the first migration, and fixture judging records are imported without exposing T2 routes or running judging logic.
+Authentication, events, teams, submissions, the public gallery, and T2 judging are implemented. All judging tables are in the first migration. Fixture assignments and scores are imported on boot; organizers calculate results on demand or by exporting CSV.
 
 Authorization is resolved directly in protected route handlers with `getSession()` and `requireRole()`. No client-supplied identity headers or Edge middleware are trusted. Ownership helpers filter organizer reads by `organizer_id` and participant queries by authenticated team membership. `requireSelf()` provides the identity comparison for T2 to extend. Admin has organizer event API access but no dedicated UI. Serializable transactions protect team capacity, one-team-per-event membership, and duplicate project creation.
 
@@ -306,7 +306,7 @@ Assign Judges --> Judges score projects
 Normalization runs
     |
     v
-Results published --> CSV export available
+Organizer reviews rankings --> CSV export available
 ```
 
 ### Deadline enforcement
@@ -369,7 +369,7 @@ The final project score is the weighted sum of the normalized per-criterion scor
 
 **Edge cases in the fixture data that we handle:**
 
-1. **Constant judge (zero variance)**: `jdg_01` gave a score of 2 on every criterion across all projects reviewed. `jdg_07` gave 4 on every criterion. Z-score normalization divides by standard deviation, which is zero for these judges. We handle this by leaving constant judges' scores unadjusted: their deviation from their own mean is zero, so their z-score is zero. This effectively neutralizes their contribution to the ranking without discarding their data.
+1. **Constant judge (zero variance)**: `jdg_01` gave 2 on every criterion in one review. `jdg_07` gave 4 on every criterion in three reviews. Sample standard deviation is undefined or zero, so the explicit T2 clarification retains these raw scores. The raw fallback affects ranking because it shares an average with z-scores; JUDGING.md reports the fixture impact.
 
 2. **Incomplete batches**: Not every judge finished scoring all assigned projects. The fixture data shows judges with as few as 1 score entry and as many as 11. We compute statistics only over the scores a judge actually submitted. Missing scores are not imputed.
 
@@ -432,10 +432,10 @@ Every route is designed to be tested against the acceptance suite before submiss
 
 ## CSV Export
 
-The organizer can export results as CSV at any stage of the workflow. The export endpoint (`/api/export.csv`) returns a CSV file with headers and one row per project. The columns include:
+The organizer can export results as CSV at any stage of the workflow. The export endpoint (`/api/export.csv`) calculates missing results and returns a CSV header plus one row per ranked, non-duplicate project. The columns include:
 
 - Project ID, title, team name, track
-- Raw scores per criterion per judge
+- Raw averages per criterion from `NormalizedResult`
 - Normalized scores per criterion
 - Weighted final score
 - Rank

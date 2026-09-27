@@ -6,7 +6,7 @@ The initial migration adds `Event.organizer_id` (required User foreign key), `Ev
 
 The normalized table is named `NormalizedResult`, as approved. Rubric weights remain DECIMAL(5,2) but store relative values; the equal fixture weights are 1, 1, 1. T2 must divide each weight by the sum before use. This resolves the conflict between two decimal places and exact thirds without another migration.
 
-All tables and fixture records are present in T1. Judging routes, calculations, and interfaces below describe the later T2 phase, not implemented T1 functionality.
+All tables and fixture records were created in T1. T2 uses those tables for judging routes, calculations, and interfaces without a second migration.
 
 This document describes every table in the database, how they relate to each other, and how data moves in and out of the platform.
 
@@ -259,7 +259,7 @@ The fixture data contains 126 score entries across 30 judges and 41 projects. Th
 
 ### NormalizedResult
 
-Precomputed normalized scores and final rankings. Populated when the organizer triggers normalization or when results are published.
+Precomputed normalized scores and final rankings. Populated when the organizer triggers normalization or exports CSV.
 
 | Column              | Type          | Constraints                      | Notes                            |
 |---------------------|---------------|----------------------------------|----------------------------------|
@@ -272,9 +272,11 @@ Precomputed normalized scores and final rankings. Populated when the organizer t
 | raw_avg             | JSONB         |                                  | Map of criterion name to raw average (for comparison) |
 | computed_at         | TIMESTAMPTZ   | NOT NULL, default now            |                                  |
 
-We store the normalized results in a separate table rather than computing them on every request for two reasons. First, normalization depends on all judges' scores, so recomputing it on every page load would query the entire score table. Second, the organizer needs to be able to review and approve results before publishing them.
+We store normalized results in a separate table because normalization depends on all judges' scores. The organizer calculates and reviews them without querying the entire score table on every page load. Participant publication is deferred beyond the listed T2 scope.
 
 The `criterion_scores` JSONB column stores the per-criterion normalized score so the organizer can see how a project performed on each dimension, not just the final number. The `raw_avg` column stores the raw average for comparison in the normalization proof.
+
+`rank` is null for the retained duplicate, projects without reviews, and projects missing any rubric criterion. Those rows remain queryable, while CSV includes ranked non-duplicates only.
 
 ---
 
@@ -295,7 +297,7 @@ The fixture file (`fixtures.json`) contains a single JSON object with six top-le
 
 **Duplicate submission.** Team `tm_07` has two project entries: `prj_07` and `prj_41`. Both are titled "Dry Harbour", both are in track Accessibility, and they share the same repo URL. `prj_41` was submitted later (17:57 UTC vs 04:29 UTC on March 1). We flag `prj_41` as a duplicate during seeding. Both projects have scores (`prj_07` has 5 reviews, `prj_41` has 4 reviews), so we preserve the score data but exclude the duplicate from rankings.
 
-**Constant-score judges.** `jdg_01` scored one project and gave 2 on every criterion. `jdg_07` scored three projects and gave 4 on every criterion. Both have zero variance across their scores. The normalization formula divides by standard deviation, which is zero for these judges. We handle this by assigning a z-score of 0 for constant judges, which means their scores contribute no relative signal to the ranking. This is documented in JUDGING.md.
+**Constant-score judges.** `jdg_01` scored one project and gave 2 on every criterion. `jdg_07` scored three projects and gave 4 on every criterion. Sample standard deviation is undefined or zero for these judges. Per the explicit T2 clarification, their raw scores are retained as the finite fallback. This choice and its effect on ranking are documented in JUDGING.md.
 
 **Uneven review counts.** Projects have between 2 and 5 reviews. Judges submitted between 1 and 11 score entries. There is no project with zero scores, but there is significant variance in coverage. We display the review count alongside each project's score so the organizer can identify thin evidence.
 
@@ -342,10 +344,10 @@ After seeding, the `external_id` column is only used for debugging and for the a
 
 ### CSV export
 
-The organizer can export results as a CSV file through the `/api/export.csv` endpoint. The export contains one row per project with the following columns:
+The organizer can export results as a CSV file through the `/api/export.csv` endpoint. The export contains one row per ranked, non-duplicate project with the following columns (criterion columns adapt to the event rubric):
 
 ```
-project_id, title, team_name, track, review_count, functionality_raw_avg, quality_raw_avg, innovation_raw_avg, functionality_normalized, quality_normalized, innovation_normalized, weighted_total, rank
+project_id, title, team_name, track, review_count, functionality_raw_avg, functionality_normalized, quality_raw_avg, quality_normalized, innovation_raw_avg, innovation_normalized, weighted_total, rank
 ```
 
 The CSV uses a comma delimiter, double-quote escaping for fields containing commas, and UTF-8 encoding. The first line is a header row.

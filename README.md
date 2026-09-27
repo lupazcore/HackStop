@@ -1,6 +1,6 @@
 # HackStop
 
-A self-hosted hackathon portal built with Next.js, TypeScript, Prisma, PostgreSQL 16, and Tailwind CSS. This delivery implements **T1 only**. T2 tables and historical fixture records exist, but there are no judging, rubric management, normalization, or export routes or screens.
+A self-hosted hackathon portal built with Next.js, TypeScript, Prisma, PostgreSQL 16, and Tailwind CSS. This delivery implements **T1 and T2**: submissions, judge assignment and scoring, weighted rubrics, progress, normalized rankings, and CSV export.
 
 ## Run
 
@@ -23,7 +23,7 @@ npm run dogfood:config
 python docs/run.py .dogfood.toml > acceptance-report.txt
 ```
 
-`.dogfood.toml` claims T1 only. The checker always probes T2 too; its four T2 failures are expected because those routes do not exist. Do not add stub endpoints to make them appear implemented.
+`.dogfood.toml` claims T1 and T2. All seven official acceptance checks pass in `acceptance-report.txt`.
 
 ## Accounts and sessions
 
@@ -36,7 +36,7 @@ python docs/run.py .dogfood.toml > acceptance-report.txt
 | Judge B | `wei.lindqvist@example.org` (`jdg_02`) |
 | Participant | `priya1@example.org` (first member of `tm_01`) |
 
-The seed also preserves every fixture judge and team member and creates the configured admin. Visitor means no authenticated user. Public registration can only create participants, regardless of a submitted role field. Judge and admin accounts can authenticate but have no dedicated UI in T1. Admin is authorized for the organizer event API across owners.
+The seed also preserves every fixture judge and team member and creates the configured admin. Visitor means no authenticated user. Public registration can only create participants, regardless of a submitted role field. Judges use `/judge/assignments` and `/judge/scoring/[projectId]`. Admin remains API-only and can manage events across owners.
 
 Passwords use bcrypt with cost 12. Normal sessions are random 32-byte hex tokens, expire after seven days, and are revoked on logout. Cookies are HttpOnly, SameSite=Lax, and Secure when `APP_URL` uses HTTPS. Mutating endpoints reject foreign Origin headers and require JSON. Seed tokens are HMAC-derived from `SEED_SESSION_SECRET`, have the documented prefixes, and stay deterministic for that configuration. Restarting renews their expiry and prints them in the exact `spec.md` format. Keep `.env`, `.dogfood.toml`, and boot logs private; these tokens grant the listed test access.
 
@@ -56,9 +56,16 @@ The first and only migration contains all 13 documented tables, PostgreSQL-gener
 
 Custom questions are `{ id, label, required }` objects and answers are strings keyed by question ID. The event form creates required text questions; the API also accepts optional questions. Prizes are a list of display strings. Custom answers are public with the project; the form makes this explicit.
 
-As approved, `RubricCriterion.weight` stores positive **relative** weights in DECIMAL(5,2). The seed stores `1, 1, 1`. In T2 the effective coefficient must be `weight / sum(weights)`, giving exactly equal thirds without pretending 0.33 sums to one. No normalization implementation is included in T1.
+As approved, `RubricCriterion.weight` stores positive **relative** weights in DECIMAL(5,2). The seed stores `1, 1, 1`. The effective coefficient is `weight / sum(weights)`, giving exactly equal thirds without pretending 0.33 sums to one. No second migration was needed for T2.
 
-The seed imports one event, 8 tracks, 30 judges, 40 teams, 41 projects, 126 historical judge assignments, and 378 raw criterion scores. `NormalizedResult` stays empty. It preserves incomplete review coverage and constant-judge values; it does not invent missing scores or run judging algorithms.
+The seed imports one event, 8 tracks, 30 judges, 40 teams, 41 projects, 126 historical judge assignments, and 378 raw criterion scores. It preserves incomplete review coverage and constant-judge values without inventing missing scores. `NormalizedResult` is calculated when the organizer requests results or exports CSV, then invalidated when scores or rubric weights change.
+
+## T2 judging
+
+- Organizers invite judges by email and track, then share a generated password. They can assign selected submissions manually or balance a track automatically to a target review count. The dashboard shows assignments, completed reviews, and percentage complete for each judge.
+- Judges see only their own assigned projects in qualified tracks. They can save partial criterion scores, add an optional comment, and update a review until `judging_close`. If `judging_open` is unset, scoring starts at `submissions_close`; if `judging_close` is unset, there is no scheduled judging cutoff.
+- Organizers configure criteria, relative weights, and scoring scales. Once scoring starts, the criterion set and scales are fixed to preserve existing scores; names and weights remain editable. Normalization uses sample standard deviation per judge and criterion. At zero variance it retains the raw score, following the explicit T2 clarification. This mixes raw and z-score units; [JUDGING.md](JUDGING.md) documents its ranking impact.
+- Rankings use only criteria actually scored, without imputing unfinished reviews. Projects missing any criterion retain an unranked result row until scoring is complete. `prj_41` and its scores remain queryable, but the duplicate has no rank and is excluded from CSV. CSV rows come from `NormalizedResult` joined with project and team records. Participant result publication is outside this T2 scope.
 
 ## Development and verification
 
@@ -70,9 +77,9 @@ npm run lint
 npm test
 ```
 
-The override exposes the database on loopback only, using `DB_HOST_PORT`. Integration tests use `.env` and the running portal. They create uniquely named test users/events and clean up only those test records. They cover fixture counts, auth-first status codes, registration role injection, session expiry/revocation, event ownership, admin API access, draft privacy, cross-team isolation, complete submissions, required custom answers, URL validation, concurrent invite capacity, deadlines, and CSRF origin rejection. Unit tests exercise exact deadline boundaries and the shared ownership guard.
+The override exposes the database on loopback only, using `DB_HOST_PORT`. Integration tests use `.env` and the running portal. They create uniquely named test users/events and clean up only those test records. T1 tests cover fixture counts, auth-first status codes, registration role injection, session expiry/revocation, event ownership, admin API access, draft privacy, cross-team isolation, complete submissions, required custom answers, URL validation, concurrent invite capacity, deadlines, and CSRF origin rejection. T2 tests cover peer-score isolation, invitation, manual and automatic assignment, partial and completed reviews, progress, zero-variance normalization, duplicate exclusion, CSV export, and judging-close enforcement. Unit tests exercise exact deadline boundaries and the shared ownership guard.
 
-For local Next.js development, stop the Compose app, keep the database running with the override, and run `npm run dev`. `DATABASE_URL` in `.env` targets that loopback database, and the server uses `APP_PORT`. `npm run build && npm start` runs the local standalone production build. No schema change is needed to begin T2.
+For local Next.js development, stop the Compose app, keep the database running with the override, and run `npm run dev`. `DATABASE_URL` in `.env` targets that loopback database, and the server uses `APP_PORT`. `npm run build && npm start` runs the local standalone production build.
 
 ## Installed direct dependencies
 

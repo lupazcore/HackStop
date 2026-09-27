@@ -1,0 +1,123 @@
+import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
+import { loadEnvFile } from "node:process";
+import { test } from "node:test";
+import { PrismaClient } from "@prisma/client";
+import { requiredEnv } from "../src/lib/env";
+import { seedTokens } from "../src/lib/seed-config";
+
+if (!process.env.DATABASE_URL) loadEnvFile();
+const db = new PrismaClient();
+const base = requiredEnv("APP_URL");
+const tokens = seedTokens();
+
+async function request(path: string, method = "GET", token?: string, payload?: unknown) {
+  const response = await fetch(new URL(path, base), { method, headers: { "Content-Type": "application/json", ...(token ? { Cookie: `session=${token}` } : {}) }, ...(payload ? { body: JSON.stringify(payload) } : {}) });
+  const text = await response.text();
+  const parsed = response.headers.get("content-type")?.includes("application/json") ? JSON.parse(text) as { data?: unknown; error?: string } : {};
+  return { status: response.status, text, data: parsed.data, error: parsed.error, cookie: response.headers.get("set-cookie")?.match(/session=([^;]+)/)?.[1] };
+}
+
+test("T2 ownership, partial scoring, normalization and export", async () => {
+  const marker = `t2-${randomBytes(5).toString("hex")}`;
+  let eventId: string | null = null;
+  let judgeId: string | null = null;
+  try {
+    const fixture = await db.event.findUniqueOrThrow({ where: { external_id: "evt_01" } });
+    const firstJudge = await db.user.findUniqueOrThrow({ where: { external_id: "jdg_01" } });
+    assert.ok(await db.score.count({ where: { judge_id: firstJudge.id } }));
+    assert.equal((await request("/api/judge/scores", "GET", tokens.judge_a)).status, 200);
+    assert.equal((await request("/api/judge/scores?judge=judge_a", "GET", tokens.judge_b)).status, 403);
+    assert.equal((await request("/api/judge/scores", "GET", tokens.participant)).status, 403);
+    assert.equal((await request("/api/judge/scores")).status, 401);
+    assert.match((await request("/judge/assignments", "GET", tokens.judge_a)).text, /My reviews/);
+    assert.match((await request(`/organizer/events/${fixture.id}/judging`, "GET", tokens.organizer)).text, /Judge progress/);
+    assert.equal((await request("/api/organizer/judges", "POST", tokens.participant, {})).status, 403);
+    assert.equal((await request("/api/organizer/judges", "POST", undefined, {})).status, 401);
+    const csv = await request("/api/export.csv", "GET", tokens.organizer);
+    assert.equal(csv.status, 200);
+    assert.match(csv.text.split(/\r?\n/)[0], /"weighted_total","rank"/);
+    assert.doesNotMatch(csv.text, /^"prj_41",/m);
+    const duplicate = await db.project.findUniqueOrThrow({ where: { external_id: "prj_41" }, include: { normalized_result: true, scores: true } });
+    assert.equal(duplicate.normalized_result?.rank, null);
+    assert.equal(new Set(duplicate.scores.map(score => score.judge_id)).size, 4);
+    assert.equal(await db.normalizedResult.count({ where: { project: { team: { event_id: fixture.id } }, rank: { not: null } } }), 40);
+    const dryHarbour = await db.project.findUniqueOrThrow({ where: { external_id: "prj_07" }, include: { normalized_result: true } });
+    assert.equal(dryHarbour.normalized_result?.rank, 4);
+    assert.ok(Math.abs(dryHarbour.normalized_result!.weighted_total.toNumber() - 1.061092) < 0.000001);
+
+    const event = await request("/api/events", "POST", tokens.organizer, { name: marker, submissions_open: new Date(Date.now() - 60000).toISOString(), submissions_close: new Date(Date.now() + 3600000).toISOString(), tracks: ["Review track"] }) ;
+    assert.equal(event.status, 201, event.text);
+    const eventData = event.data as { id: string; tracks: { id: string }[] };
+    eventId = eventData.id;
+    const trackId = eventData.tracks[0].id;
+    const team = await request("/api/teams", "POST", tokens.participant, { event_id: eventId, name: marker });
+    assert.equal(team.status, 201, team.text);
+    const project = await request("/api/projects/new", "POST", tokens.participant, { team_id: (team.data as { id: string }).id, track_id: trackId, title: marker, summary: "Judging flow fixture", status: "submitted" });
+    assert.equal(project.status, 201, project.text);
+    const projectId = (project.data as { id: string }).id;
+    const rubric = await request("/api/organizer/rubric", "PUT", tokens.organizer, { event_id: eventId, name: "Weighted review", criteria: [{ name: "Build", weight: 2, max_score: 5 }, { name: "Impact", weight: 1, max_score: 5 }] });
+    assert.equal(rubric.status, 200, rubric.text);
+    const criteria = (rubric.data as { criteria: { id: string; name: string }[] }).criteria;
+    const judge = await request("/api/organizer/judges", "POST", tokens.organizer, { event_id: eventId, name: marker, email: `${marker}@example.org`, track_ids: [trackId] });
+    assert.equal(judge.status, 201, judge.text);
+    judgeId = (judge.data as { judge_id: string }).judge_id;
+    const password = (judge.data as { temporary_password: string }).temporary_password;
+    assert.ok(password.length >= 12);
+    const login = await request("/api/auth/login", "POST", undefined, { email: `${marker}@example.org`, password });
+    assert.equal(login.status, 200, login.text);
+    const judgeToken = login.cookie!;
+    assert.equal((await request(`/api/judge/assignments/${projectId}`, "GET", judgeToken)).status, 404);
+    const assigned = await request("/api/organizer/assignments", "POST", tokens.organizer, { event_id: eventId, mode: "manual", judge_id: judgeId, project_ids: [projectId] });
+    assert.equal(assigned.status, 200, assigned.text);
+    assert.equal((assigned.data as { assigned: number }).assigned, 1);
+    assert.equal((await request(`/api/judge/assignments/${projectId}`, "GET", judgeToken)).status, 200);
+    assert.equal((await request(`/api/judge/assignments/${projectId}`, "GET", tokens.judge_b)).status, 404);
+    assert.equal((await request(`/api/judge/scores?judge=${judgeId}`, "GET", tokens.judge_b)).status, 403);
+    const existingJudge = await db.user.findUniqueOrThrow({ where: { external_id: "jdg_02" } });
+    assert.equal((await request("/api/organizer/judges", "POST", tokens.organizer, { event_id: eventId, name: existingJudge.name, email: existingJudge.email, track_ids: [trackId] })).status, 200);
+    const balanced = await request("/api/organizer/assignments", "POST", tokens.organizer, { event_id: eventId, mode: "automatic", track_id: trackId, target_reviews: 2 });
+    assert.equal(balanced.status, 200, balanced.text);
+    assert.equal((balanced.data as { assigned: number }).assigned, 1);
+    assert.equal((await request(`/api/judge/assignments/${projectId}`, "GET", tokens.judge_b)).status, 200);
+    assert.equal((await request(`/api/judge/assignments/${projectId}`, "PUT", judgeToken, { scores: [{ criterion_id: criteria[0].id, value: 4 }] })).status, 409);
+    await db.event.update({ where: { id: eventId }, data: { submissions_close: new Date(Date.now() - 1000) } });
+    const partial = await request(`/api/judge/assignments/${projectId}`, "PUT", judgeToken, { scores: [{ criterion_id: criteria[0].id, value: 4 }], comment: "Partial" });
+    assert.equal(partial.status, 200, partial.text);
+    assert.equal((partial.data as { status: string }).status, "in_progress");
+    assert.equal((await request(`/api/organizer/results?event_id=${eventId}`, "POST", tokens.organizer)).status, 200);
+    const unfinished = await db.normalizedResult.findUniqueOrThrow({ where: { project_id: projectId } });
+    assert.equal(unfinished.rank, null);
+    assert.equal(unfinished.weighted_total.toNumber(), 4);
+    const complete = await request(`/api/judge/assignments/${projectId}`, "PUT", judgeToken, { scores: [{ criterion_id: criteria[1].id, value: 5 }], comment: "Complete" });
+    assert.equal(complete.status, 200, complete.text);
+    assert.equal((complete.data as { status: string }).status, "completed");
+    assert.equal(await db.normalizedResult.count({ where: { project_id: projectId } }), 0);
+    assert.equal(await db.score.count({ where: { judge_id: judgeId, project_id: projectId, comment: "Complete" } }), 2);
+    const progress = await request(`/api/organizer/progress?event_id=${eventId}`, "GET", tokens.organizer);
+    assert.equal(progress.status, 200, progress.text);
+    const row = (progress.data as { id: string; percentage: number }[]).find(item => item.id === judgeId);
+    assert.equal(row?.percentage, 100);
+    const calculated = await request(`/api/organizer/results?event_id=${eventId}`, "POST", tokens.organizer);
+    assert.equal(calculated.status, 200, calculated.text);
+    const result = await db.normalizedResult.findUniqueOrThrow({ where: { project_id: projectId } });
+    assert.equal(result.review_count, 1);
+    assert.ok(Math.abs(result.weighted_total.toNumber() - 13 / 3) < 0.000001);
+    const exported = await request(`/api/export.csv?event_id=${eventId}`, "GET", tokens.organizer);
+    assert.equal(exported.status, 200);
+    assert.match(exported.text, new RegExp(marker));
+    assert.equal((await request(`/api/export.csv?event_id=${eventId}`, "GET", judgeToken)).status, 403);
+    const revised = await request("/api/organizer/rubric", "PUT", tokens.organizer, { event_id: eventId, name: "Reweighted review", criteria: [{ id: criteria[0].id, name: "Build quality", weight: 1, max_score: 5 }, { id: criteria[1].id, name: "Impact", weight: 1, max_score: 5 }] });
+    assert.equal(revised.status, 200, revised.text);
+    assert.equal(await db.normalizedResult.count({ where: { project_id: projectId } }), 0);
+    assert.equal((await request(`/api/organizer/results?event_id=${eventId}`, "POST", tokens.organizer)).status, 200);
+    assert.equal((await db.normalizedResult.findUniqueOrThrow({ where: { project_id: projectId } })).weighted_total.toNumber(), 4.5);
+    assert.equal((await request("/api/organizer/rubric", "PUT", tokens.organizer, { event_id: eventId, name: "Invalid", criteria: [{ id: criteria[0].id, name: "Build quality", weight: 1, max_score: 5 }] })).status, 409);
+    await db.event.update({ where: { id: eventId }, data: { judging_close: new Date(Date.now() - 1000) } });
+    assert.equal((await request(`/api/judge/assignments/${projectId}`, "PUT", judgeToken, { scores: [{ criterion_id: criteria[0].id, value: 3 }] })).status, 409);
+  } finally {
+    if (eventId) { await db.project.deleteMany({ where: { team: { event_id: eventId } } }); await db.event.delete({ where: { id: eventId } }); }
+    if (judgeId) await db.user.delete({ where: { id: judgeId } });
+    await db.$disconnect();
+  }
+});

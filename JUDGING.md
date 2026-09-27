@@ -1,8 +1,8 @@
 # JUDGING
 
-## T1 implementation boundary
+## Implemented T2 behavior
 
-This document describes the future T2 behavior. T1 creates the schema and preserves the fixture rubric, assignments, and raw scores only; it contains no scoring, normalization, rubric management, assignment, results, or export feature.
+T1 supplied the schema and fixture data. T2 adds assignment, scoring, rubric editing, organizer progress, normalized results, and CSV export without a schema migration. The zero-variance rule below follows the explicit T2 clarification: retain the raw score when sample standard deviation is zero.
 
 Approved storage clarification: the DECIMAL(5,2) `weight` column holds relative weights (the fixture uses 1, 1, 1). In every formula below, `weight(c)` means `stored_weight(c) / sum(stored_weights)`. T2 must require a positive total and positive stored weights. This gives equal thirds and replaces the earlier requirement that the stored values themselves sum to 1.0.
 
@@ -22,7 +22,7 @@ The judging system is the single most important subsystem in the platform. It di
 6. Edge Cases
 7. Worked Example from Fixture Data
 8. Rank Movement Analysis
-9. Variance Reduction
+9. Distribution of Final Scores
 10. Alternative Methods We Considered
 11. Role Isolation
 12. Organizer Visibility
@@ -76,7 +76,7 @@ The organizer configures a rubric for each event. A rubric is a list of criteria
 - A weight (e.g. 0.33)
 - A maximum score (e.g. 5)
 
-Weights must sum to 1.0. The platform enforces this when the organizer saves the rubric.
+Stored weights must be positive, with at most two decimal places. The platform divides each weight by the positive sum of all weights when calculating results.
 
 The fixture data uses three equally weighted criteria:
 
@@ -161,14 +161,14 @@ For each individual score, compute how many standard deviations it falls from th
 z(j, p, c) = (raw_score - mean(j,c)) / std(j,c)
 ```
 
-If `std(j,c) = 0` (the judge gave the same score on every project for this criterion), the z-score is defined as 0. See edge case handling below.
+If `std(j,c) = 0` or the judge has only one score for this criterion, use that raw score unadjusted. The organizer explicitly chose this fallback for T2. It preserves finite values but mixes raw and z-score units, so the impact is visible in the worked example below.
 
 ### Step 3: Per-project, per-criterion normalized score
 
-For each project p and criterion c, average the z-scores from all judges who scored that project on that criterion:
+For each project p and criterion c, average the transformed values from all judges who scored that project on that criterion. A transformed value is a z-score when variance exists and the raw score under the chosen zero-variance fallback:
 
 ```
-norm(p, c) = (1/k) * sum of z(j, p, c) for all judges j who scored project p
+norm(p, c) = (1/k) * sum of transformed(j, p, c) for all judges j who scored project p
 ```
 
 where k is the number of judges who scored project p on criterion c.
@@ -199,9 +199,7 @@ Sort all non-duplicate projects by `final(p)` in descending order. The project w
 
 `jdg_07` scored 3 projects and gave 4 on every criterion across all three. Standard deviation is 0.0.
 
-**Our solution.** When `std(j,c) = 0`, we set `z(j, p, c) = 0`. This means the judge's score contributes no relative signal to the ranking. Their score is treated as exactly average within their own distribution.
-
-**Why this is correct.** A constant judge provides no information about which project is better than another. Assigning z = 0 is equivalent to saying "this judge did not differentiate between projects on this criterion." It neither inflates nor deflates any project's normalized score. The alternative -- dropping the judge's data entirely -- would reduce coverage and waste a real review. Setting z = 0 preserves the review count while neutralizing the lack of variance.
+**Our solution.** Use the raw score unadjusted when the sample standard deviation is zero. This avoids division by zero and retains the judge's recorded review. The fallback is an explicit product choice, even though a constant score offers no relative ranking signal and can lift a project more than a finite z-score.
 
 ### 6b. Single-project judge
 
@@ -209,13 +207,15 @@ Sort all non-duplicate projects by `final(p)` in descending order. The project w
 
 **Who it affects.** `jdg_01` (1 project) and `jdg_23` (1 project).
 
-**Our solution.** Same as the constant-judge case: set z = 0. With only one data point, we cannot determine whether the judge is harsh, generous, or average. The safest assumption is that their score sits at their own mean.
+**Our solution.** Use the raw score unadjusted, as with every zero-variance distribution. A single value cannot establish a sample standard deviation.
 
 ### 6c. Incomplete batches
 
 **The problem.** Not every judge finishes scoring all assigned projects. Some judges submitted 1 score entry, others submitted 11.
 
 **Our solution.** We compute statistics only over the scores a judge actually submitted. Missing scores are not imputed, guessed, or averaged. A project that received 2 reviews is ranked using 2 reviews. The review count is displayed alongside every score so the organizer can see which results rest on thin evidence.
+
+A partially scored project retains a result row and averages only criteria with actual scores. Its available criterion weights are rescaled to sum to one for the preview, and its rank remains empty until every rubric criterion has at least one score. A project with no scores likewise has no rank.
 
 ### 6d. Duplicate submission
 
@@ -233,142 +233,25 @@ Sort all non-duplicate projects by `final(p)` in descending order. The project w
 
 ## 7. Worked Example from Fixture Data
 
-We walk through the full normalization pipeline for one project: `prj_07` ("Dry Harbour"), a project in the Accessibility track with 5 reviews from judges `jdg_19`, `jdg_21`, `jdg_26`, `jdg_01`, and `jdg_12`.
+`prj_07` ("Dry Harbour") has five reviews. Statistics use each judge's scored non-duplicate projects only; the later duplicate `prj_41` has scores but is excluded from baselines and rankings. The numbers below are from the seeded fixture and the implemented T2 calculation.
 
-This project is a good example because it was scored by judges with very different baselines, and it includes a constant judge (`jdg_01`).
+| Criterion | Judge contributions after transformation | Project average |
+|---|---|---:|
+| functionality | jdg_19 -1.155, jdg_21 4.000, jdg_26 0.185, jdg_01 2.000, jdg_12 4.000 | 1.806 |
+| quality | jdg_19 -1.000, jdg_21 -0.218, jdg_26 1.258, jdg_01 2.000, jdg_12 0.707 | 0.549 |
+| innovation | jdg_19 -1.000, jdg_21 1.155, jdg_26 1.278, jdg_01 2.000, jdg_12 0.707 | 0.828 |
 
-### Raw scores
+`jdg_01` has one review, so its three contributions are its raw 2s. `jdg_21` and `jdg_12` have zero functionality variance over their non-duplicate scored projects, so their functionality contributions remain raw 4s. All other contributions above use `(raw - judge mean) / sample standard deviation` for that criterion.
 
-| Judge  | functionality | quality | innovation |
-|--------|-------------:|--------:|-----------:|
-| jdg_19 |            2 |       3 |          2 |
-| jdg_21 |            4 |       3 |          4 |
-| jdg_26 |            4 |       5 |          5 |
-| jdg_01 |            2 |       2 |          2 |
-| jdg_12 |            4 |       5 |          3 |
-
-Raw averages: functionality = 3.200, quality = 3.600, innovation = 3.200
-
-### Judge baselines (mean and std across all their scores)
-
-| Judge  | func mean | func std | qual mean | qual std | innov mean | innov std |
-|--------|----------:|---------:|----------:|---------:|-----------:|----------:|
-| jdg_19 |      3.25 |     1.26 |      4.00 |     0.82 |       2.75 |      0.96 |
-| jdg_21 |      4.00 |     0.00 |      3.75 |     1.50 |       3.25 |      1.50 |
-| jdg_26 |      3.80 |     1.14 |      3.60 |     1.07 |       3.70 |      1.16 |
-| jdg_01 |      2.00 |     0.00 |      2.00 |     0.00 |       2.00 |      0.00 |
-| jdg_12 |      4.00 |     0.00 |      4.00 |     1.41 |       2.50 |      0.71 |
-
-`jdg_01` has std = 0.00 on all criteria (constant judge, single project).
-`jdg_21` has std = 0.00 on functionality (gave 4 to every project on functionality).
-`jdg_12` has std = 0.00 on functionality (gave 4 to every project on functionality).
-
-### Z-score transformation
-
-**Functionality:**
-
-| Judge  | raw | mean | std  | z-score  | Notes                     |
-|--------|----:|-----:|-----:|---------:|---------------------------|
-| jdg_19 |   2 | 3.25 | 1.26 |   -0.993 | Below this judge's average |
-| jdg_21 |   4 | 4.00 | 0.00 |    0.000 | Zero std, z = 0           |
-| jdg_26 |   4 | 3.80 | 1.14 |   +0.176 | Slightly above average    |
-| jdg_01 |   2 | 2.00 | 0.00 |    0.000 | Constant judge, z = 0     |
-| jdg_12 |   4 | 4.00 | 0.00 |    0.000 | Zero std, z = 0           |
-
-Normalized functionality = (-0.993 + 0.000 + 0.176 + 0.000 + 0.000) / 5 = **-0.163**
-
-**Quality:**
-
-| Judge  | raw | mean | std  | z-score  |
-|--------|----:|-----:|-----:|---------:|
-| jdg_19 |   3 | 4.00 | 0.82 |   -1.225 |
-| jdg_21 |   3 | 3.75 | 1.50 |   -0.500 |
-| jdg_26 |   5 | 3.60 | 1.07 |   +1.302 |
-| jdg_01 |   2 | 2.00 | 0.00 |    0.000 |
-| jdg_12 |   5 | 4.00 | 1.41 |   +0.707 |
-
-Normalized quality = (-1.225 + -0.500 + 1.302 + 0.000 + 0.707) / 5 = **+0.057**
-
-**Innovation:**
-
-| Judge  | raw | mean | std  | z-score  |
-|--------|----:|-----:|-----:|---------:|
-| jdg_19 |   2 | 2.75 | 0.96 |   -0.783 |
-| jdg_21 |   4 | 3.25 | 1.50 |   +0.500 |
-| jdg_26 |   5 | 3.70 | 1.16 |   +1.121 |
-| jdg_01 |   2 | 2.00 | 0.00 |    0.000 |
-| jdg_12 |   3 | 2.50 | 0.71 |   +0.707 |
-
-Normalized innovation = (-0.783 + 0.500 + 1.121 + 0.000 + 0.707) / 5 = **+0.309**
-
-### Weighted final score
-
-With equal weights (1/3 each):
-
-```
-final = (1/3)(-0.163) + (1/3)(0.057) + (1/3)(0.309) = 0.067
-```
-
-### Impact on ranking
-
-| Metric                | Value |
-|-----------------------|------:|
-| Raw weighted average  | 3.333 |
-| Raw rank              |    30 |
-| Normalized score      | 0.067 |
-| Normalized rank       |    16 |
-| Rank change           |   +14 |
-
-This project climbed 14 positions after normalization. The raw average of 3.333 placed it near the bottom because two of its judges (`jdg_01` and `jdg_19`) tend to score low. After adjusting for each judge's personal baseline, the project's relative performance is actually above average.
-
----
+With equal relative weights of `1, 1, 1`, the effective weights are thirds. The weighted result for `prj_07` is `(1.806 + 0.549 + 0.828) / 3 = 1.061`. Its raw weighted average is 3.333. With ties broken by fixture project ID for comparison, it moves from raw rank 30 to normalized rank 4. The large movement is partly driven by the requested raw-score fallback.
 
 ## 8. Rank Movement Analysis
 
-We ran normalization across all 40 non-duplicate projects in the fixture data. The table below shows the top and bottom movers.
+Across the 40 non-duplicate fixture projects, 28 move by at least three positions compared with ranking by raw criterion averages. The five largest climbs are `prj_07` (30 to 4), `prj_22` (37 to 16), `prj_03` (29 to 10), `prj_17` (18 to 3), and `prj_09` (17 to 2). The largest drops include `prj_15` (12 to 31), `prj_28` (25 to 38), and `prj_38` (10 to 23). These ranks describe the chosen raw-score fallback, not a pure z-score ranking.
 
-### Biggest climbers (projects that were unfairly penalized by raw averages)
+## 9. Distribution of Final Scores
 
-| Project | Title        | Raw Rank | Norm Rank | Change |
-|---------|--------------|--------:|---------:|-------:|
-| prj_12  | Open Beacon  |      26 |        8 |    +18 |
-| prj_07  | Dry Harbour  |      30 |       16 |    +14 |
-| prj_22  | Dry Bridge   |      35 |       26 |     +9 |
-| prj_24  | Glass Beacon |      20 |       13 |     +7 |
-| prj_14  | Green Lantern|      28 |       23 |     +5 |
-
-`prj_12` ("Open Beacon") is the most dramatic case. It climbed 18 positions because its raw scores were depressed by harsh judges. After normalization revealed those judges were harsh across the board, the project's relative performance turned out to be strong.
-
-### Biggest drops (projects that were unfairly inflated by raw averages)
-
-| Project | Title        | Raw Rank | Norm Rank | Change |
-|---------|--------------|--------:|---------:|-------:|
-| prj_19  | Small Relay  |      12 |       29 |    -17 |
-| prj_15  | Copper Orbit |      13 |       28 |    -15 |
-| prj_28  | Flat Meadow  |      27 |       38 |    -11 |
-| prj_01  | Glass Signal |      23 |       31 |     -8 |
-| prj_02  | Small Meadow |      15 |       22 |     -7 |
-
-`prj_19` ("Small Relay") dropped 17 positions. Its raw average of 3.667 was inflated by generous judges. After normalization, its actual performance relative to those judges' baselines was below average.
-
-### What this tells us
-
-17 of the 40 projects changed rank by 3 or more positions after normalization. The maximum movement was 18 positions in either direction. A ranking system that uses raw averages would have placed 17 projects in materially wrong positions.
-
----
-
-## 9. Variance Reduction
-
-Normalization reduces the spread of final scores across projects, which is expected and correct. Judge-specific bias is noise, not signal, and removing it tightens the distribution around real differences in project quality.
-
-| Metric                            | Raw       | Normalized |
-|-----------------------------------|----------:|-----------:|
-| Mean of weighted project scores   |     3.549 |     -0.020 |
-| Standard deviation                |     0.360 |      0.295 |
-
-The standard deviation dropped from 0.360 to 0.295, an 18% reduction. This means 18% of the apparent spread in raw scores was judge bias, not real quality difference. Normalization stripped that noise out.
-
-The normalized mean is approximately zero, which is expected: z-scores are centered at zero by construction.
+In this fixture, the mean raw weighted average is 3.549 with sample standard deviation 0.365. The mean final score is 0.211 with sample standard deviation 0.551. The final mean need not be zero and its spread need not shrink because zero-variance judges contribute raw scores on the 1-5 scale. Review counts remain visible beside results so organizers can inspect thin coverage.
 
 ---
 
@@ -376,7 +259,7 @@ The normalized mean is approximately zero, which is expected: z-scores are cente
 
 ### Simple averaging (rejected)
 
-Average raw scores across all judges who reviewed a project. This is what most platforms do. This is rejected because it produces unfair rankings when judges have different baselines, which they always do. Section 3 shows this with a concrete example. The fixture data confirms it: 17 of 40 projects would be ranked in materially wrong positions.
+Average raw scores across all judges who reviewed a project. This is what most platforms do. This is rejected because it produces unfair rankings when judges have different baselines, which they always do. Section 3 shows this with a concrete example. The fixture data shows substantial rank movement under the chosen normalization and fallback policy.
 
 ### Min-max normalization (rejected)
 
@@ -442,7 +325,7 @@ A judge cannot:
 
 A participant cannot:
 - Access any judging routes
-- See any scores (including their own project's scores before results are published)
+- See any scores, including scores for their own project; no participant score endpoint exists in T2
 
 A visitor (unauthenticated) cannot:
 - Access any route except the public gallery
@@ -477,13 +360,13 @@ This three-layer defense ensures that even creative URL construction cannot leak
 
 The organizer has full visibility into the judging process:
 
-**Progress dashboard.** Shows how many projects each judge has scored out of their assignments. Judges who have not started are highlighted. Judges who have scored fewer than half their assignments are flagged.
+**Progress dashboard.** Shows each judge's assigned count, completed count, and percentage complete.
 
-**Score browser.** The organizer can view all scores from all judges across all tracks. This is the one place where cross-judge, cross-track data is visible.
+**Score data.** The organizer can inspect aggregate raw and normalized results across all tracks. Judge-to-project assignments remain available through the organizer assignment API.
 
-**Normalization preview.** The organizer can trigger normalization and see the raw vs. normalized rankings side by side before publishing results. This lets them verify that the normalization is producing reasonable results before participants see them.
+**Normalization preview.** The organizer can trigger normalization and compare raw averages with weighted normalized results before exporting. Participants have no results route in T2.
 
-**Results publication.** The organizer explicitly publishes results. Before publication, no participant can see scores or rankings.
+**Results publication.** Deferred beyond the listed T2 scope. The schema has no publication field and no participant results UI is exposed.
 
 ---
 
@@ -493,17 +376,15 @@ The organizer can export a CSV at any point in the judging lifecycle. The export
 
 ```
 project_id, title, team_name, track, review_count,
-functionality_raw_avg, quality_raw_avg, innovation_raw_avg,
-functionality_normalized, quality_normalized, innovation_normalized,
+functionality_raw_avg, functionality_normalized,
+quality_raw_avg, quality_normalized,
+innovation_raw_avg, innovation_normalized,
 weighted_total, rank
 ```
 
 The CSV is generated server-side using standard comma-separated format with double-quote escaping. The content type is `text/csv` and the Content-Disposition header triggers a file download in the browser.
 
-The organizer can also export at intermediate stages:
-- Before judging: project list with team and track info
-- During judging: partial scores with review counts
-- After normalization: full results with raw and normalized scores
+Criterion columns follow the event's configured rubric. Exporting before judging produces the header only; projects without every criterion scored remain unranked and are omitted. During judging, completed projects are ranked from the scores actually submitted. The duplicate fixture submission remains queryable but never appears in the ranking export.
 
 ---
 
@@ -527,11 +408,11 @@ The organizer can cross-reference any final ranking against the raw data. Every 
 
 | Decision                                | Reasoning                                    |
 |-----------------------------------------|----------------------------------------------|
-| Z-score over raw averaging              | Raw averages are unfair when judges have different baselines. The fixture data confirms this: 17 of 40 projects would be ranked incorrectly. |
+| Z-score over raw averaging              | Raw averages are unfair when judges have different baselines. The fixture data shows substantial rank movement under the chosen normalization and fallback policy. |
 | Per-criterion normalization             | Judges have criterion-specific biases. A judge harsh on quality but generous on innovation is not uncommon. |
 | Sample standard deviation (n-1)         | Judge scores are a sample from their internal scale, not a census. |
-| z = 0 for constant judges              | Preserves review count without injecting false signal. A constant judge provides no relative information. |
-| z = 0 for single-project judges         | Same reasoning. One data point cannot establish a baseline. |
+| Raw fallback for constant judges        | Avoids division by zero and preserves the review as explicitly chosen for T2. |
+| Raw fallback for single-project judges  | One data point cannot establish a sample standard deviation. |
 | No imputation for missing scores        | Guessing missing scores introduces bias. Absent data should stay absent. |
 | Duplicate detection by team + title     | Catches the fixture data edge case (`prj_07`/`prj_41`). Earlier submission kept, later flagged. |
 | Three-layer access control              | Role gate + ownership filter + explicit peer check. Defense in depth for the most critical security property. |

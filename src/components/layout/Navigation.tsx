@@ -12,7 +12,7 @@ export function Navigation({ user }: { user: Actor | null }) {
   const router = useRouter();
   const mutation = useMutation();
   const roleBorder = { organizer: "border-role-organizer", judge: "border-role-judge", participant: "border-role-participant", admin: "border-role-admin" };
-  const links = [{ href: "/projects", label: "Project gallery" }, ...(user?.role === "participant" ? [{ href: "/participant/teams", label: "My teams" }, { href: "/participant/submissions", label: "My submissions" }] : []), ...(user?.role === "organizer" ? [{ href: "/organizer/events", label: "My events" }] : [])];
+  const links = [{ href: "/projects", label: "Project gallery" }, ...(user?.role === "participant" ? [{ href: "/participant/teams", label: "My teams" }, { href: "/participant/submissions", label: "My submissions" }] : []), ...(user?.role === "organizer" ? [{ href: "/organizer/events", label: "My events" }] : []), ...(user?.role === "judge" ? [{ href: "/judge/assignments", label: "My reviews" }] : [])];
   const navigation = <>{links.map(link => <Link key={link.href} href={link.href} onClick={() => setOpen(false)} aria-current={pathname.startsWith(link.href) ? "page" : undefined} className={pathname.startsWith(link.href) ? "text-primary underline underline-offset-4" : "text-ink-secondary hover:text-primary"}>{link.label}</Link>)}</>;
   return <header className="border-b border-border bg-surface">
     <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-6 px-6 lg:px-12">
