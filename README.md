@@ -2,8 +2,6 @@
 
 A self-hosted hackathon portal built with Next.js, TypeScript, Prisma, PostgreSQL 16, and Tailwind CSS. This delivery implements **T1, T2, and T3**: submissions, judging, normalized rankings, CSV export, authenticated community voting, comments, and an organizer audit log.
 
-The [24-second demo video](demo-video/HackStop-demo.mp4) shows the running public gallery, organizer judging dashboard, and judge review screen.
-
 ## Run
 
 From a fresh clone, run one command with Docker Compose. No `.env`, host Node.js install, or setup script is required:

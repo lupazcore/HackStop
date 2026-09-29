@@ -5,10 +5,6 @@ node_modules/
 !.env.example
 *.tsbuildinfo
 test-results/
-demo-video/capture/
-demo-video/frame-*.png
-demo-video/organizer-judging.png
-demo-video/judge-assignments.png
-demo-video/composition/renders/
-demo-video/composition/AGENTS.md
-demo-video/composition/CLAUDE.md
+docs/PRD.md
+docs/DESIGN_SYSTEM.md
+docs/AGENTS.md

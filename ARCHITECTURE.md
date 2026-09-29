@@ -184,10 +184,7 @@ hackstop/
     seed.ts
   tests/
   docs/
-    AGENTS.md
-    DESIGN_SYSTEM.md
     fixtures.json
-    PRD.md
     run.py
     spec.md
 ```
