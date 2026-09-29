@@ -7,5 +7,5 @@ export function Field({ label, name, hint, ...props }: FieldProps) {
 export function TextField({ label, name, ...props }: { label: string; name: string } & TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return <div className="field"><label htmlFor={name}>{label}</label><textarea id={name} name={name} {...props} /></div>;
 }
-export function FormError({ error }: { error: string }) { return error ? <p role="alert" className="rounded border border-error bg-error-light p-3 text-sm text-error">{error}</p> : null; }
-export function SubmitButton({ pending, children }: { pending: boolean; children: ReactNode }) { return <button className="button" type="submit" disabled={pending}>{pending ? "Saving..." : children}</button>; }
+export function FormError({ error }: { error: string }) { return error ? <p role="alert" className="rounded-sm border border-error bg-error-light p-3 text-sm text-error">{error}</p> : null; }
+export function SubmitButton({ pending, children }: { pending: boolean; children: ReactNode }) { return <button className="button" type="submit" disabled={pending}>{pending ? "Saving…" : children}</button>; }

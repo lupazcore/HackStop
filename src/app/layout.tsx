@@ -9,7 +9,8 @@ import { Navigation } from "@/components/layout/Navigation";
 
 export const metadata: Metadata = { title: { default: "HackStop", template: "%s | HackStop" }, description: "A self-hosted hackathon portal." };
 export const dynamic = "force-dynamic";
+const themeBootstrap = `(function(){var choice='system';try{var saved=localStorage.getItem('hackstop-theme');if(saved==='light'||saved==='dark'||saved==='system')choice=saved}catch(e){}var dark=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.dataset.theme=choice==='system'?(dark?'dark':'light'):choice})();`;
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
-  return <html lang="en"><body><a href="#main" className="sr-only focus:not-sr-only">Skip to content</a><Navigation user={session?.user ?? null} /><main id="main" className="mx-auto max-w-7xl px-6 py-12 lg:px-12">{children}</main><footer className="mx-auto max-w-7xl border-t border-border px-6 py-6 text-xs text-ink-secondary lg:px-12">HackStop · Self-hosted hackathon portal</footer></body></html>;
+  return <html lang="en" suppressHydrationWarning><head><script dangerouslySetInnerHTML={{ __html: themeBootstrap }} /></head><body><a href="#main" className="skip-link sr-only">Skip to content</a><Navigation user={session?.user ?? null}>{children}</Navigation></body></html>;
 }
